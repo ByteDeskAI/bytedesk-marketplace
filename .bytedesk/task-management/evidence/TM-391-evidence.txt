@@ -1,0 +1,5 @@
+PR #187 merged (9eccb0d6).
+Live sessions in fresh repos (core.hooksPath unset -> set): claude -p OK; codex exec OK after trust; grok interactive OK (after reinstalling task-management/knowledge-management from their plugin dirs; startup ~5s).
+trust-codex-hooks: stored hash corrupted to sha256:0000 -> restored to the current hash; none-needed on re-run.
+Review fixes: fake codex that exits early -> "skipped" exit 1, no crash; session hook latency 3029ms -> 9ms.
+plugin-rsync tests: 19 passed, 0 failed.

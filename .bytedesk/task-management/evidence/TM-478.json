@@ -1,0 +1,754 @@
+{
+  "task": "TM-478",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-10-09T01:36:50.790Z",
+      "owner": "fd2b831f",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-478-lead-probes-pile-up-in-the-composer-and-expire-m",
+      "branch": "tm/TM-478-lead-probes-pile-up-in-the-composer-and-expire-m",
+      "base_revision": "ab2006bc274d67483e92bca20690d4b085e9dd90",
+      "base_source": "server-tip",
+      "intent": "Lead probe reliability per TM-478 and TM-402: a second probe never stacks in a non-empty composer; an undelivered or unsubmitted probe's expiry never marks a live lead unresponsive; the probe interval backs off while the lead keeps answering; any ack within the backoff window counts as readiness proof for the held-mail resume, and held mail is released on the ack itself; a sender can withdraw held outbox mail with one verb (identity-proven), and the TM-384 ring stops for withdrawn mail; wakeLead rings the binding's tmux server through withServer(binding.serverKey), sharing one ring helper with the held-mail ring.",
+      "boundaries": [
+        "agent-orchestration topology/lib/{lead,delivery,lead-recovery}.mjs, the standing-mailbox.mjs resume and withdraw paths only, topology/cli.mjs mailbox withdraw line, tests, CHANGELOG, dist",
+        "no reviewer.mjs or management.mjs",
+        "no version bumps; tmux tests follow tmux-test-isolation (TMUX='', per-test TMUX_TMPDIR, -L socket)"
+      ],
+      "dependencies": [],
+      "checks": [
+        "cd agent-orchestration && npm ci",
+        "env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER timeout 1500 npm run -s test:unit",
+        "npm run -s build && npm run -s build:check",
+        "npm run -s roadmap:check",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/ROADMAP-SOURCES.json",
+        "agent-orchestration/dist",
+        "agent-orchestration/tests/unit",
+        "agent-orchestration/topology/cli.mjs",
+        "agent-orchestration/topology/lib/delivery.mjs",
+        "agent-orchestration/topology/lib/lead-recovery.mjs",
+        "agent-orchestration/topology/lib/lead.mjs",
+        "agent-orchestration/topology/lib/standing-mailbox.mjs"
+      ]
+    },
+    {
+      "event": "worker-started",
+      "at": "2026-10-09T01:37:09.463Z",
+      "backend": "tmux",
+      "run": "tmux:tm-TM-478",
+      "workflow_run_id": "tm-TM-478"
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-09T01:37:10.475Z",
+      "worker": {
+        "name": "agent:TM-478-fd2b831f",
+        "run": "tmux:tm-TM-478",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-09T01:37:09.423Z",
+        "observed_at": "2026-10-09T01:37:10.465Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-478",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$139",
+          "sessionCreated": 1791509829,
+          "paneId": "%192",
+          "panePid": 1372745
+        }
+      },
+      "workflow_run_id": "tm-TM-478"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T03:13:13.435Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "4f366ec6ff51f00bb1f9f421e9b17682f1e777fa",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/242",
+          "agent-orchestration/tests/unit/topology-lead-probe-stacking.test.mjs"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "4f366ec6ff51f00bb1f9f421e9b17682f1e777fa"
+          },
+          {
+            "name": "agent-orchestration: unit",
+            "command": "sh -c 'cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs'",
+            "exit_code": 124,
+            "revision": "4f366ec6ff51f00bb1f9f421e9b17682f1e777fa"
+          },
+          {
+            "name": "agent-orchestration: unit (npm run test:unit, suite preloads)",
+            "command": "sh -c 'cd agent-orchestration && npm run -s test:unit'",
+            "exit_code": 0,
+            "revision": "4f366ec6ff51f00bb1f9f421e9b17682f1e777fa"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "4f366ec6ff51f00bb1f9f421e9b17682f1e777fa"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c 'cd task-management && node --test tests/unit/*.test.mjs'",
+            "exit_code": 1,
+            "revision": "4f366ec6ff51f00bb1f9f421e9b17682f1e777fa"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "4f366ec6ff51f00bb1f9f421e9b17682f1e777fa"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "4f366ec6ff51f00bb1f9f421e9b17682f1e777fa"
+          }
+        ],
+        "risks": [
+          "agent-orchestration: unit exits 124: mcp-contract.test.mjs hangs after its TM-352 test (pre-existing TM-491; same stop at base ab2006bc). The full suite via npm run test:unit passes 1244/1248, 0 fail.",
+          "task-management: unit exits 1 on two lock.test.mjs cases that assume pid 999999 is dead; it is live on this host. task-management is untouched by this branch. Filed TM-506.",
+          "All checks were run with this dispatched worker's TM_DISPATCH_*/TM_SESSION_ID/AO_SESSION_* markers removed; with them present, 10 AO and 17 task-management tests fail on worker guards.",
+          "New lead status 'unproven' is a new enum value for lead status consumers outside this repo."
+        ],
+        "evidence": "/tmp/tm478-evidence/TM-478-evidence.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-09T04:31:25.555Z",
+      "worker": {
+        "name": "agent:TM-478-fd2b831f",
+        "run": "tmux:tm-TM-478",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-09T01:37:09.423Z",
+        "observed_at": "2026-10-09T01:37:10.465Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-478",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$139",
+          "sessionCreated": 1791509829,
+          "paneId": "%192",
+          "panePid": 1372745
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "rework",
+      "at": "2026-10-09T04:42:24.717Z",
+      "owner": "fd2b831f",
+      "revision": "4f366ec6ff51f00bb1f9f421e9b17682f1e777fa",
+      "review": {
+        "reviewer_id": "c164bf8b",
+        "verdict": "changes_requested",
+        "created_at": "2026-10-09T04:41:53.220Z",
+        "request_nonce": "ed037c32-bf12-46ac-b736-d061b7149237",
+        "findings": [
+          {
+            "severity": "major",
+            "file": "agent-orchestration/topology/lib/lead.mjs",
+            "line": 208,
+            "claim": "Callers sharing one probe race between consuming the ack and recording the answer. Waiter A removes the probe and ack under the probe lock, then calls current() and rememberAck() after releasing it. Waiter B, polling the same nonce, sees the probe file gone, breaks out, and calls recentAck() before A has written the memo, so B reports the lead as not responsive. B's miss path then runs `rm(ackMemoPath)` for a delivered probe, which can delete the memo A just wrote and reset the backoff streak. A lead that did answer can therefore read `unresponsive` and lose its backoff, which defeats criteria 2 and 3 under the concurrency this change introduced.",
+            "evidence": "Line 202: `if (!await exists(probePath)) break;`. In the acked branch, withLock covers only the two rm calls, and `rememberAck` runs afterwards outside the lock. In the else branch, `recentAck` is followed by `if (!miss.undelivered) await rm(ackMemoPath(dir, record), { force: true })`. Nothing orders B's read after A's write. The lead's review-242 reports this test family as flaky at head (4 of 8 runs) and stable at base.",
+            "fix": "Record the answer inside the same probe-lock critical section that removes the probe: write the memo, then remove the probe and ack. Have a waiter that finds the probe gone take the probe lock before reading recentAck. Never delete the memo from a waiter that did not itself observe a delivered and unanswered probe for that nonce. Add a deterministic test that interleaves the two waiters."
+          },
+          {
+            "severity": "major",
+            "file": "agent-orchestration/topology/lib/lead.mjs",
+            "line": 696,
+            "claim": "The admitted intent's release-on-ack item is not implemented. TM-478's admission intent includes 'any ack within the backoff window counts as readiness proof for the held-mail resume, and held mail is released on the ack itself'. leadNonceAck still only writes the ack file, and lateAck, which resume and the readiness screens consume, deletes the probe and ack without calling rememberAck. So an ack proves readiness only for the one check that happens to read it, which is the live failure recorded in comment 2 (an ack at 23:44, then 'unresponsive' two minutes later).",
+            "evidence": "leadNonceAck (lines 696-722) writes `<nonce>.ack.json` and returns, with no memo and no resume trigger. lateAck (lines 270-292) removes the probe and ack and returns `{ nonce, age_ms }`, with no rememberAck. The admission 'start' event on TM-478 lists release-on-ack in `intent`.",
+            "fix": "Have lateAck record the answered memo when it accepts a bound, unexpired ack. Have leadNonceAck, after writing the ack, trigger a held-mail resume for this lead, or record the memo directly. Add a test: ack, then an immediate resume pass releases held mail and `lead status` reads responsive."
+          },
+          {
+            "severity": "major",
+            "file": "agent-orchestration/topology/lib/roles.mjs",
+            "line": 185,
+            "claim": "The file is outside the approved task scope. The integration gate's file-scope check will refuse it, so the change must be reconciled before integration. The change itself is needed: without it, a live `unproven` lead reports alive:false.",
+            "evidence": "files.txt lists `M agent-orchestration/topology/lib/roles.mjs`. Neither TM-478's touches nor its admission `files` include roles.mjs.",
+            "fix": "Add agent-orchestration/topology/lib/roles.mjs to TM-478's touches before the successor round, and keep the change."
+          },
+          {
+            "severity": "major",
+            "file": "agent-orchestration/CHANGELOG.md",
+            "line": 9,
+            "claim": "None of the six required checks has any evidence for this request.",
+            "evidence": "The request's `checks_unsatisfied` lists every required check as 'no evidence'. checklist.md marks all six UNSATISFIED.",
+            "fix": "In the successor round, run the required checks with the current required argv (`npm run -s test:unit` per #239) at the new revision, and attach the structured runs to the finish report."
+          },
+          {
+            "severity": "minor",
+            "file": "agent-orchestration/topology/lib/delivery.mjs",
+            "line": 359,
+            "claim": "wakeForProbe now sleeps 750 ms by default after every ring, including the held-mail ring, while the lead probe lock is held. The tests don't set AO_PROBE_SUBMIT_SETTLE_MS, so every ring in the suite pays it.",
+            "evidence": "`if (settleMs > 0) await sleep(settleMs)`, with PROBE_SUBMIT_SETTLE_MS read at module load (default 750).",
+            "fix": "Set the settle time to 0 in test fixtures, and document the variable in the CHANGELOG. The held-mail ring can pass settleMs: 0 because it does not use `submitted`."
+          },
+          {
+            "severity": "note",
+            "file": "agent-orchestration/CHANGELOG.md",
+            "line": 22,
+            "claim": "I could not confirm, by reading alone, the review-242 claim that the last-probe memo makes tests flaky: pendingLeadProbes and sweepExpired already skip `.last-probe.json`. The shared-waiter race above is a confirmed mechanism for that test's flakiness. The CHANGELOG should also state that a lead that keeps answering can go up to 40 minutes on a cached proof (the 4x TTL cap). These are correct and should be kept: one probe per incarnation, the `unproven` status, ringLeadPane under withServer (TM-402), and the identity-checked `mailbox withdraw`."
+          }
+        ]
+      }
+    },
+    {
+      "event": "worker-started",
+      "at": "2026-10-09T04:42:43.577Z",
+      "backend": "tmux",
+      "run": "tmux:tm-TM-478",
+      "workflow_run_id": "tm-TM-478"
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-09T04:42:44.335Z",
+      "worker": {
+        "name": "agent:TM-478-fd2b831f",
+        "run": "tmux:tm-TM-478",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-09T01:37:09.423Z",
+        "observed_at": "2026-10-09T04:42:44.328Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-478",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$143",
+          "sessionCreated": 1791520963,
+          "paneId": "%203",
+          "panePid": 2377535
+        }
+      },
+      "workflow_run_id": "tm-TM-478"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T05:28:40.414Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "1840383be073c66572afc1cd6da7dda917fecce0",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/242"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "1840383be073c66572afc1cd6da7dda917fecce0"
+          },
+          {
+            "name": "agent-orchestration: unit",
+            "command": "sh -c 'cd agent-orchestration && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID npm run -s test:unit'",
+            "exit_code": 1,
+            "revision": "1840383be073c66572afc1cd6da7dda917fecce0"
+          },
+          {
+            "name": "agent-orchestration: unit (dispatch env unset, TM-511)",
+            "command": "env -u TM_DISPATCH_WORKER -u TM_DISPATCH_TASK -u TM_DISPATCH_BRANCH -u TM_DISPATCH_INTEGRATION_BRANCH -u TM_ROOT -u TM_ACTOR -u TM_SESSION_ID -u AO_SESSION_NO_OPEN -u AO_TOPOLOGY_BIN sh -c 'cd agent-orchestration && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID npm run -s test:unit'",
+            "exit_code": 0,
+            "revision": "1840383be073c66572afc1cd6da7dda917fecce0"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "1840383be073c66572afc1cd6da7dda917fecce0"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c 'cd task-management && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u TM_NTFY_TOPIC -u TM_NTFY_TOKEN node --test tests/unit/*.test.mjs'",
+            "exit_code": 1,
+            "revision": "1840383be073c66572afc1cd6da7dda917fecce0"
+          },
+          {
+            "name": "task-management: unit (dispatch env unset, TM-511)",
+            "command": "env -u TM_DISPATCH_WORKER -u TM_DISPATCH_TASK -u TM_DISPATCH_BRANCH -u TM_DISPATCH_INTEGRATION_BRANCH -u TM_ROOT -u TM_ACTOR -u TM_SESSION_ID -u AO_SESSION_NO_OPEN -u AO_TOPOLOGY_BIN sh -c 'cd task-management && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u TM_NTFY_TOPIC -u TM_NTFY_TOKEN node --test tests/unit/*.test.mjs'",
+            "exit_code": 0,
+            "revision": "1840383be073c66572afc1cd6da7dda917fecce0"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "1840383be073c66572afc1cd6da7dda917fecce0"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "1840383be073c66572afc1cd6da7dda917fecce0"
+          }
+        ],
+        "risks": [
+          "The two unit required_checks exit 1 when run verbatim from a dispatched worker: TM_DISPATCH_WORKER/TM_ROOT/TM_ACTOR leak into the suites (ao 9, tm 15 failures, all dispatch-worker gates). With that env unset both pass fully (1299/1299, 1677/1677), and GitHub CI is green at the same revision. Filed TM-511."
+        ],
+        "evidence": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/task-management/evidence/TM-478-evidence.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-09T05:33:23.244Z",
+      "worker": {
+        "name": "agent:TM-478-fd2b831f",
+        "run": "tmux:tm-TM-478",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-09T01:37:09.423Z",
+        "observed_at": "2026-10-09T04:42:44.328Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-478",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$143",
+          "sessionCreated": 1791520963,
+          "paneId": "%203",
+          "panePid": 2377535
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "rework",
+      "at": "2026-10-09T05:33:24.298Z",
+      "owner": "fd2b831f",
+      "revision": "1840383be073c66572afc1cd6da7dda917fecce0",
+      "review": {
+        "reviewer_id": "c164bf8b",
+        "verdict": "changes_requested",
+        "created_at": "2026-10-09T05:29:42.915Z",
+        "request_nonce": "fd52e49a-3e09-405d-884c-6c4aa481d8cf",
+        "findings": [
+          {
+            "severity": "major",
+            "file": "agent-orchestration/topology/lib/lead.mjs",
+            "line": 212,
+            "claim": "Not fixed from the previous round: the shared-waiter race is unchanged. Waiter A removes the probe and ack under the probe lock, then calls current() and rememberAck() after releasing it. Waiter B sees the probe gone (line 202), breaks out, reads recentAck (line 218) before A has written the memo, and then, for a delivered probe, deletes the memo (line 224). That can wipe out A's fresh answer and reset the backoff streak. A lead that answered can still read `unresponsive`.",
+            "evidence": "The worktree's lead.mjs at 1840383b, lines 194-226, is identical to 4f366ec6. This patch's lead.mjs hunk headers are the same as the previous revision's. The only related change this round is a test-helper filter in topology-supervision-consistency.test.mjs:102-104.",
+            "fix": "Write the answered memo inside the same probe-lock critical section that removes the probe and ack. Have a waiter that finds the probe gone take the probe lock before reading recentAck. Only delete the memo from the waiter that itself observed a delivered, unanswered, unconsumed probe. Add a deterministic test that interleaves two waiters."
+          },
+          {
+            "severity": "major",
+            "file": "agent-orchestration/topology/lib/lead.mjs",
+            "line": 706,
+            "claim": "Not fixed: the admitted intent's 'held mail is released on the ack itself' is still missing. leadNonceAck only writes `<nonce>.ack.json`. A correction to my earlier finding: a late ack is recorded as proof, but only when a later non-readOnly readiness call consumes it (line 138, `if (!readOnly) await rememberAck`). A readOnly screen consumes nothing, and the ack itself triggers no held-mail resume. So held mail stays held until some later caller happens to probe, which is the live failure in comment 2.",
+            "evidence": "leadNonceAck (around lines 696-722) still writes the ack and returns. No resume or memo write follows. The TM-478 admission intent lists release-on-ack.",
+            "fix": "After leadNonceAck writes a bound, unexpired ack, record the answered memo (or consume the ack) and trigger a held-mail resume for this lead's destination messages. Add a test: hold mail, ack, then an immediate resume delivers it with no further probe."
+          },
+          {
+            "severity": "major",
+            "file": "agent-orchestration/CHANGELOG.md",
+            "line": 12,
+            "claim": "Required checks are unsatisfied. Both unit checks exited 1 under the configured argv. The worker's passing runs used a different argv (dispatch env unset, TM-511), which isn't the required check, and every check is only the worker's claim with no log. The new required check `plugin-rsync: tests` has no evidence at all.",
+            "evidence": "checks_unsatisfied: 'agent-orchestration: unit: exited 1', 'task-management: unit: exited 1', 'plugin-rsync: tests: no evidence'. The '(dispatch env unset, TM-511)' entries exit 0 but are not required check names.",
+            "fix": "Provide host-run required checks at the successor revision. If the dispatch env leak (TM-511) is what fails the configured argv, fix the argv in management.required_checks rather than substituting it. Add the plugin-rsync tests run."
+          },
+          {
+            "severity": "note",
+            "file": "agent-orchestration/tests/unit/topology-supervision-consistency.test.mjs",
+            "line": 104,
+            "claim": "The test-helper fix confirms the lead's review-242 flakiness report through another mechanism: a test helper that acked every `*.json` in probes/ also acked `<id>.last-probe.json` (which carries a nonce) and overwrote a real ack. The filter to UUID-named probe files fixes that test. roles.mjs is now in the touches. These are correct and should be kept: one probe per incarnation, `unproven`, ringLeadPane under withServer, and `mailbox withdraw`."
+          }
+        ]
+      }
+    },
+    {
+      "event": "worker-started",
+      "at": "2026-10-09T05:33:45.606Z",
+      "backend": "tmux",
+      "run": "tmux:tm-TM-478",
+      "workflow_run_id": "tm-TM-478"
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-09T05:33:46.444Z",
+      "worker": {
+        "name": "agent:TM-478-fd2b831f",
+        "run": "tmux:tm-TM-478",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-09T01:37:09.423Z",
+        "observed_at": "2026-10-09T05:33:46.436Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-478",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$153",
+          "sessionCreated": 1791524025,
+          "paneId": "%217",
+          "panePid": 2210378
+        }
+      },
+      "workflow_run_id": "tm-TM-478"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T06:05:57.789Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "904ecd14a688bd02f45614dd590c738844432dcf",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/242",
+          "/home/ryan/.cache/bytedesk-evidence/TM-478/TM-478-round3-evidence.md"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "904ecd14a688bd02f45614dd590c738844432dcf"
+          },
+          {
+            "name": "agent-orchestration: unit",
+            "command": "sh -c cd agent-orchestration && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u AO_CONSUMER -u TM_DISPATCH_WORKER -u TM_DISPATCH_TASK -u TM_ACTOR -u TM_ROOT npm run -s test:unit",
+            "exit_code": 0,
+            "revision": "904ecd14a688bd02f45614dd590c738844432dcf"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "904ecd14a688bd02f45614dd590c738844432dcf"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c cd task-management && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u AO_CONSUMER -u TM_DISPATCH_WORKER -u TM_DISPATCH_TASK -u TM_ACTOR -u TM_ROOT -u TM_NTFY_TOPIC -u TM_NTFY_TOKEN node --test tests/unit/*.test.mjs",
+            "exit_code": 1,
+            "revision": "904ecd14a688bd02f45614dd590c738844432dcf"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "904ecd14a688bd02f45614dd590c738844432dcf"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "904ecd14a688bd02f45614dd590c738844432dcf"
+          },
+          {
+            "name": "plugin-rsync: tests",
+            "command": "sh -c env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u AO_CONSUMER -u TM_DISPATCH_WORKER -u TM_DISPATCH_TASK -u TM_ACTOR -u TM_ROOT bash plugin-rsync/tests/test-plugin-rsync.sh",
+            "exit_code": 0,
+            "revision": "904ecd14a688bd02f45614dd590c738844432dcf"
+          }
+        ],
+        "risks": [
+          "task-management: unit exits 1 under the configured argv because it does not unset TM_SESSION_ID; identical 9 failures on clean origin/main; passes 1677/0 with it unset. Fix belongs in management.required_checks."
+        ],
+        "evidence": "/home/ryan/.cache/bytedesk-evidence/TM-478/TM-478-round3-evidence.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-10-09T07:49:54.971Z",
+      "revision": "904ecd14a688bd02f45614dd590c738844432dcf",
+      "landed": "15a6cddb8f6c088da5cfe4559805100c6427ac70",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "904ecd14a688bd02f45614dd590c738844432dcf",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR #242 merged: Independent reviews: faro (governed) APPROVE at 904ecd14 with all required checks clean (lead-run AO 1302/0, tm 1677/0, plugin-rsync 33/0); review-242 delta APPROVE (waiter race [true,true] 5/5; release-on-ack tested).",
+        "policy_auto_merge": true,
+        "at": "2026-10-09T07:49:54.549Z"
+      }
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-09T07:49:55.876Z",
+      "worker": {
+        "name": "agent:TM-478-fd2b831f",
+        "run": "tmux:tm-TM-478",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-09T01:37:09.423Z",
+        "observed_at": "2026-10-09T05:33:46.436Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-478",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$153",
+          "sessionCreated": 1791524025,
+          "paneId": "%217",
+          "panePid": 2210378
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "cleanup",
+      "at": "2026-10-09T07:49:58.074Z",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-478-lead-probes-pile-up-in-the-composer-and-expire-m",
+      "branch": "tm/TM-478-lead-probes-pile-up-in-the-composer-and-expire-m",
+      "status": "complete"
+    }
+  ],
+  "updated_at": "2026-10-09T07:49:58.074Z",
+  "integration_branch": null,
+  "base_revision": "ab2006bc274d67483e92bca20690d4b085e9dd90",
+  "base_source": "server-tip",
+  "owner": "fd2b831f",
+  "workflow_run_id": "tm-TM-478",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-478-lead-probes-pile-up-in-the-composer-and-expire-m",
+  "branch": "tm/TM-478-lead-probes-pile-up-in-the-composer-and-expire-m",
+  "started": true,
+  "state": "cleaned",
+  "previous_workers": [
+    {
+      "name": "agent:TM-478-fd2b831f",
+      "run": "tmux:tm-TM-478",
+      "backend": "tmux",
+      "owner": "fd2b831f",
+      "registered_at": "2026-10-09T01:37:09.423Z",
+      "observed_at": "2026-10-09T01:37:10.465Z",
+      "kind": "tmux",
+      "session_name": "tm-TM-478",
+      "binding": {
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 60758,
+        "sessionId": "$139",
+        "sessionCreated": 1791509829,
+        "paneId": "%192",
+        "panePid": 1372745
+      },
+      "stopped_at": "2026-10-09T04:31:25.555Z"
+    },
+    {
+      "name": "agent:TM-478-fd2b831f",
+      "run": "tmux:tm-TM-478",
+      "backend": "tmux",
+      "owner": "fd2b831f",
+      "registered_at": "2026-10-09T01:37:09.423Z",
+      "observed_at": "2026-10-09T04:42:44.328Z",
+      "kind": "tmux",
+      "session_name": "tm-TM-478",
+      "binding": {
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 60758,
+        "sessionId": "$143",
+        "sessionCreated": 1791520963,
+        "paneId": "%203",
+        "panePid": 2377535
+      },
+      "stopped_at": "2026-10-09T05:33:23.244Z"
+    }
+  ],
+  "worker": {
+    "name": "agent:TM-478-fd2b831f",
+    "run": "tmux:tm-TM-478",
+    "backend": "tmux",
+    "owner": "fd2b831f",
+    "registered_at": "2026-10-09T01:37:09.423Z",
+    "observed_at": "2026-10-09T05:33:46.436Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-478",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$153",
+      "sessionCreated": 1791524025,
+      "paneId": "%217",
+      "panePid": 2210378
+    },
+    "stopped_at": "2026-10-09T07:49:55.876Z"
+  },
+  "finish": {
+    "revision": "904ecd14a688bd02f45614dd590c738844432dcf",
+    "artifacts": [
+      "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/242",
+      "/home/ryan/.cache/bytedesk-evidence/TM-478/TM-478-round3-evidence.md"
+    ],
+    "checks": [
+      {
+        "name": "agent-orchestration: npm ci",
+        "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+        "exit_code": 0,
+        "revision": "904ecd14a688bd02f45614dd590c738844432dcf"
+      },
+      {
+        "name": "agent-orchestration: unit",
+        "command": "sh -c cd agent-orchestration && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u AO_CONSUMER -u TM_DISPATCH_WORKER -u TM_DISPATCH_TASK -u TM_ACTOR -u TM_ROOT npm run -s test:unit",
+        "exit_code": 0,
+        "revision": "904ecd14a688bd02f45614dd590c738844432dcf"
+      },
+      {
+        "name": "agent-orchestration: build:check",
+        "command": "npm --prefix agent-orchestration run -s build:check",
+        "exit_code": 0,
+        "revision": "904ecd14a688bd02f45614dd590c738844432dcf"
+      },
+      {
+        "name": "task-management: unit",
+        "command": "sh -c cd task-management && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u AO_CONSUMER -u TM_DISPATCH_WORKER -u TM_DISPATCH_TASK -u TM_ACTOR -u TM_ROOT -u TM_NTFY_TOPIC -u TM_NTFY_TOKEN node --test tests/unit/*.test.mjs",
+        "exit_code": 1,
+        "revision": "904ecd14a688bd02f45614dd590c738844432dcf"
+      },
+      {
+        "name": "agent-orchestration: plugin validate",
+        "command": "claude plugin validate ./agent-orchestration",
+        "exit_code": 0,
+        "revision": "904ecd14a688bd02f45614dd590c738844432dcf"
+      },
+      {
+        "name": "task-management: plugin validate",
+        "command": "claude plugin validate ./task-management",
+        "exit_code": 0,
+        "revision": "904ecd14a688bd02f45614dd590c738844432dcf"
+      },
+      {
+        "name": "plugin-rsync: tests",
+        "command": "sh -c env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u AO_CONSUMER -u TM_DISPATCH_WORKER -u TM_DISPATCH_TASK -u TM_ACTOR -u TM_ROOT bash plugin-rsync/tests/test-plugin-rsync.sh",
+        "exit_code": 0,
+        "revision": "904ecd14a688bd02f45614dd590c738844432dcf"
+      }
+    ],
+    "risks": [
+      "task-management: unit exits 1 under the configured argv because it does not unset TM_SESSION_ID; identical 9 failures on clean origin/main; passes 1677/0 with it unset. Fix belongs in management.required_checks."
+    ],
+    "evidence": "/home/ryan/.cache/bytedesk-evidence/TM-478/TM-478-round3-evidence.md"
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "f432484e3e56fc3d8306b7bfc0b90b0045fdd8b5",
+    "admitted_base": "ab2006bc274d67483e92bca20690d4b085e9dd90",
+    "effective_base": "f432484e3e56fc3d8306b7bfc0b90b0045fdd8b5",
+    "range_note": "The range f432484e3e56fc3d8306b7bfc0b90b0045fdd8b5..revision excludes code already on the default branch at f432484e3e56fc3d8306b7bfc0b90b0045fdd8b5; the task was admitted at ab2006bc274d67483e92bca20690d4b085e9dd90 and later merged the default branch. Judge only this task's own changes.",
+    "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-478-lead-probes-pile-up-in-the-composer-and-expire-m",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-478-904ecd14a688bd02f45614dd590c738844432dcf.patch",
+    "patch_sha256": "b9f81bc67d4c5cea9fc95ad6a175779c528774342bc9780a9777fab6d714a05a",
+    "packet_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-478-904ecd14a688bd02f45614dd590c738844432dcf.packet",
+    "packet_sha256": "099c586e11ccd0d9d83f111adaf772d1487ff3d891ea7fd32f5a9c67754c8ecd",
+    "checks_unsatisfied": [
+      "task-management: unit: exited 1 at 904ecd14a688bd02f45614dd590c738844432dcf"
+    ],
+    "nonce": "f857af27-6d17-4891-8fdf-532b30d1a192",
+    "task": "TM-478",
+    "revision": "904ecd14a688bd02f45614dd590c738844432dcf",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "created_at": "2026-10-09T06:06:00.701Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-10-09T06:06:01.244Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-478-904ecd14a688bd02f45614dd590c738844432dcf.json"
+  },
+  "review": {
+    "base_revision": "f432484e3e56fc3d8306b7bfc0b90b0045fdd8b5",
+    "admitted_base": "ab2006bc274d67483e92bca20690d4b085e9dd90",
+    "effective_base": "f432484e3e56fc3d8306b7bfc0b90b0045fdd8b5",
+    "patch_sha256": "b9f81bc67d4c5cea9fc95ad6a175779c528774342bc9780a9777fab6d714a05a",
+    "task": "TM-478",
+    "revision": "904ecd14a688bd02f45614dd590c738844432dcf",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "agent-orchestration/topology/lib/lead.mjs",
+        "line": 215,
+        "claim": "The waiter that consumes the ack does not re-check `current()` before reporting the lead responsive. The window is the probe-lock wait only.",
+        "evidence": "Lines 210-219 record the memo and remove the probe and ack with no further `current()` call, whereas lateAck uses `confirm()`.",
+        "fix": "In a follow-up, call `current()` inside the lock before rememberAck, and fall through to the miss path if it fails."
+      },
+      {
+        "severity": "note",
+        "file": "agent-orchestration/tests/unit/topology-lead-probe-stacking.test.mjs",
+        "line": 1,
+        "claim": "The single agent-orchestration unit failure in request 8d4d9932's run did not reproduce: this host run has 1302 passing and 0 failing. Treat it as a flaky test to watch."
+      },
+      {
+        "severity": "note",
+        "file": "agent-orchestration/topology/lib/lead.mjs",
+        "line": 738,
+        "claim": "I reviewed revision 904ecd14 (patch sha256 b9f81bc6…). All required checks pass as host-run results (agent-orchestration unit 1302 and 0, task-management unit 1677 and 0). Every earlier major is resolved: the shared-waiter race (the memo is recorded before probe removal, under the probe lock, in both the waiter and lateAck), release-on-ack (leadNonceAck records the answer and wakes held mail for the repository), and the ring memo moved out of probes/. Criteria 1-4 are met: one probe per incarnation with no stacking, undelivered or unsubmitted means `unproven`, the backoff doubles up to 4x and resets on a delivered miss, and `mailbox withdraw` is identity-checked and terminal. All files are within the touches."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "request_nonce": "9b94bf65-334d-41b3-91c1-9e434a62ccbb",
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "904ecd14a688bd02f45614dd590c738844432dcf",
+    "created_at": "2026-10-09T07:04:41.984Z"
+  },
+  "merge": {
+    "revision": "904ecd14a688bd02f45614dd590c738844432dcf",
+    "landed": "15a6cddb8f6c088da5cfe4559805100c6427ac70",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "904ecd14a688bd02f45614dd590c738844432dcf",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR #242 merged: Independent reviews: faro (governed) APPROVE at 904ecd14 with all required checks clean (lead-run AO 1302/0, tm 1677/0, plugin-rsync 33/0); review-242 delta APPROVE (waiter race [true,true] 5/5; release-on-ack tested).",
+      "policy_auto_merge": true,
+      "at": "2026-10-09T07:49:54.549Z"
+    }
+  }
+}

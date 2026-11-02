@@ -1,0 +1,82 @@
+TAP version 13
+# Subtest: TM-349: a late admission records merge-base(HEAD, integration branch), so the review range keeps the own commit
+ok 1 - TM-349: a late admission records merge-base(HEAD, integration branch), so the review range keeps the own commit
+  ---
+  duration_ms: 292.059362
+  type: 'test'
+  ...
+# Subtest: TM-349: admission is refused only when no integration branch candidate resolves, and never falls back to HEAD
+ok 2 - TM-349: admission is refused only when no integration branch candidate resolves, and never falls back to HEAD
+  ---
+  duration_ms: 200.180048
+  type: 'test'
+  ...
+# Subtest: TM-349: with no recorded branch, PR or target_branch, the repository default branch is the admission base
+ok 3 - TM-349: with no recorded branch, PR or target_branch, the repository default branch is the admission base
+  ---
+  duration_ms: 449.335283
+  type: 'test'
+  ...
+# Subtest: TM-349: a resumed admission widens a base that hid a worker commit, and never narrows it
+ok 4 - TM-349: a resumed admission widens a base that hid a worker commit, and never narrows it
+  ---
+  duration_ms: 458.008439
+  type: 'test'
+  ...
+# Subtest: TM-349 review: with the server answering, a forged origin/main and main cannot narrow the base
+ok 5 - TM-349 review: with the server answering, a forged origin/main and main cannot narrow the base
+  ---
+  duration_ms: 106.067433
+  type: 'test'
+  ...
+# Subtest: TM-349 review: a worker-chosen PR base that differs from the trusted branches is ignored
+ok 6 - TM-349 review: a worker-chosen PR base that differs from the trusted branches is ignored
+  ---
+  duration_ms: 125.538795
+  type: 'test'
+  ...
+# Subtest: TM-349 review: offline, the oldest local merge-base wins, never the first
+ok 7 - TM-349 review: offline, the oldest local merge-base wins, never the first
+  ---
+  duration_ms: 183.043605
+  type: 'test'
+  ...
+# Subtest: TM-349 re-review: the server branch tip anchors admission while the task commit is unpushed
+ok 8 - TM-349 re-review: the server branch tip anchors admission while the task commit is unpushed
+  ---
+  duration_ms: 177.54848
+  type: 'test'
+  ...
+# Subtest: TM-349 re-review: a forged local-fallback base is widened at review once the server answers
+ok 9 - TM-349 re-review: a forged local-fallback base is widened at review once the server answers
+  ---
+  duration_ms: 251.528
+  type: 'test'
+  ...
+# Subtest: TM-349 re-review: unrelated candidate histories are refused by name, not with a raw command error
+ok 10 - TM-349 re-review: unrelated candidate histories are refused by name, not with a raw command error
+  ---
+  duration_ms: 209.305097
+  type: 'test'
+  ...
+# Subtest: TM-528: admission warns when target_branch is unset and the PR targets another branch than the default
+ok 11 - TM-528: admission warns when target_branch is unset and the PR targets another branch than the default
+  ---
+  duration_ms: 248.1861
+  type: 'test'
+  ...
+# Subtest: TM-528: manage rebase narrows a started record to the server merge-base of target_branch and re-queues review
+ok 12 - TM-528: manage rebase narrows a started record to the server merge-base of target_branch and re-queues review
+  ---
+  duration_ms: 352.567787
+  type: 'test'
+  ...
+1..12
+# tests 12
+# suites 0
+# pass 12
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3213.572899

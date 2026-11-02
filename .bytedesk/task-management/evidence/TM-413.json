@@ -1,0 +1,397 @@
+{
+  "task": "TM-413",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-10-09T03:33:20.827Z",
+      "owner": "fd2b831f",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-413-manage-admit-cannot-admit-a-task-whose-worktree-",
+      "branch": "tm/TM-413-manage-admit-cannot-admit-a-task-whose-worktree-",
+      "base_revision": "4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188",
+      "base_source": "server-tip",
+      "intent": "TM-413: manage admit provisions a fresh worktree and claim for an open, unclaimed task whose recorded worktree or branch belongs to another task (the branch names a different TM id, or another task records the same worktree), instead of reusing it. Add a tm verb to clear an inherited worktree without hand-editing frontmatter. Add a regression test for the inherited case (passport TM-258 inheriting done TM-253's worktree).",
+      "boundaries": [
+        "agent-orchestration topology/lib/management.mjs admitTask and its provisioning only, tests, CHANGELOG, dist, ROADMAP-SOURCES.json",
+        "task-management lib/worktree.mjs, bin/tm worktree verb, tests, CHANGELOG",
+        "no reviewer, slots, delegation, standing-mailbox, lead, delivery or persona-registry modules",
+        "no version bumps; temp stores only"
+      ],
+      "dependencies": [],
+      "checks": [
+        "cd agent-orchestration && npm ci",
+        "env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_TRANSPORT -u TM_DISPATCH_WORKER timeout 1500 npm run -s test:unit",
+        "npm run -s build && npm run -s build:check",
+        "npm run -s roadmap:check",
+        "claude plugin validate ./agent-orchestration",
+        "cd task-management && node --test --test-concurrency=4 tests/unit/*.test.mjs"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/topology/lib/management.mjs",
+        "task-management/CHANGELOG.md",
+        "task-management/bin/tm",
+        "task-management/lib/worktree.mjs"
+      ]
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T04:45:51.740Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a",
+        "artifacts": [
+          "task-management/lib/worktree.mjs",
+          "task-management/tests/test-worktree.sh",
+          "task-management/CHANGELOG.md",
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/244"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+          },
+          {
+            "name": "agent-orchestration: unit",
+            "command": "sh -c \"cd agent-orchestration && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID npm run -s test:unit\"",
+            "exit_code": 1,
+            "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c \"cd task-management && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u TM_NTFY_TOPIC -u TM_NTFY_TOKEN node --test tests/unit/*.test.mjs\"",
+            "exit_code": 1,
+            "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+          }
+        ],
+        "risks": [
+          "agent-orchestration: unit (10 failures) and task-management: unit (15 failures) exit 1 at this commit AND identically at merge-base 4678c5d5; failing test names match exactly (see evidence). Pre-existing, not introduced here."
+        ],
+        "evidence": "/tmp/tm413-evidence-final.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T04:45:59.447Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a",
+        "artifacts": [
+          "task-management/lib/worktree.mjs",
+          "task-management/tests/test-worktree.sh",
+          "task-management/CHANGELOG.md",
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/244"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+          },
+          {
+            "name": "agent-orchestration: unit",
+            "command": "sh -c \"cd agent-orchestration && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID npm run -s test:unit\"",
+            "exit_code": 1,
+            "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c \"cd task-management && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u TM_NTFY_TOPIC -u TM_NTFY_TOKEN node --test tests/unit/*.test.mjs\"",
+            "exit_code": 1,
+            "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+          }
+        ],
+        "risks": [
+          "agent-orchestration: unit (10 failures) and task-management: unit (15 failures) exit 1 at this commit AND identically at merge-base 4678c5d5; failing test names match exactly (see evidence). Pre-existing, not introduced here."
+        ],
+        "evidence": "/tmp/tm413-evidence-final.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-10-10T04:42:54.236Z",
+      "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a",
+      "landed": "86e37843ce3670801868ddc324e90758469c82ef",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR #244 merged: faro APPROVE at fbfd1805 with all 7 required checks host-run clean, CI green",
+        "policy_auto_merge": true,
+        "at": "2026-10-10T04:42:53.862Z"
+      }
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-10T04:42:55.066Z",
+      "worker": {
+        "name": "agent:TM-413-fd2b831f",
+        "run": "tmux:tm-TM-413",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-09T04:09:41.792Z",
+        "observed_at": "2026-10-09T04:45:51.733Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-413",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$141",
+          "sessionCreated": 1791518981,
+          "paneId": "%200",
+          "panePid": 654212
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "cleanup",
+      "at": "2026-10-10T04:42:57.245Z",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-413-manage-admit-cannot-admit-a-task-whose-worktree-",
+      "branch": "tm/TM-413-manage-admit-cannot-admit-a-task-whose-worktree-",
+      "status": "complete"
+    }
+  ],
+  "updated_at": "2026-10-10T04:42:57.245Z",
+  "integration_branch": null,
+  "base_revision": "4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188",
+  "base_source": "server-tip",
+  "owner": "fd2b831f",
+  "workflow_run_id": "tm-TM-413",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-413-manage-admit-cannot-admit-a-task-whose-worktree-",
+  "branch": "tm/TM-413-manage-admit-cannot-admit-a-task-whose-worktree-",
+  "started": true,
+  "state": "cleaned",
+  "worker": {
+    "name": "agent:TM-413-fd2b831f",
+    "run": "tmux:tm-TM-413",
+    "backend": "tmux",
+    "owner": "fd2b831f",
+    "registered_at": "2026-10-09T04:09:41.792Z",
+    "observed_at": "2026-10-09T04:45:51.733Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-413",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$141",
+      "sessionCreated": 1791518981,
+      "paneId": "%200",
+      "panePid": 654212
+    },
+    "stopped_at": "2026-10-10T04:42:55.066Z"
+  },
+  "finish": {
+    "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a",
+    "artifacts": [
+      "task-management/lib/worktree.mjs",
+      "task-management/tests/test-worktree.sh",
+      "task-management/CHANGELOG.md",
+      "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/244"
+    ],
+    "checks": [
+      {
+        "name": "agent-orchestration: npm ci",
+        "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+        "exit_code": 0,
+        "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+      },
+      {
+        "name": "agent-orchestration: unit",
+        "command": "sh -c \"cd agent-orchestration && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID npm run -s test:unit\"",
+        "exit_code": 1,
+        "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+      },
+      {
+        "name": "agent-orchestration: build:check",
+        "command": "npm --prefix agent-orchestration run -s build:check",
+        "exit_code": 0,
+        "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+      },
+      {
+        "name": "task-management: unit",
+        "command": "sh -c \"cd task-management && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u TM_NTFY_TOPIC -u TM_NTFY_TOKEN node --test tests/unit/*.test.mjs\"",
+        "exit_code": 1,
+        "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+      },
+      {
+        "name": "agent-orchestration: plugin validate",
+        "command": "claude plugin validate ./agent-orchestration",
+        "exit_code": 0,
+        "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+      },
+      {
+        "name": "task-management: plugin validate",
+        "command": "claude plugin validate ./task-management",
+        "exit_code": 0,
+        "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+      }
+    ],
+    "risks": [
+      "agent-orchestration: unit (10 failures) and task-management: unit (15 failures) exit 1 at this commit AND identically at merge-base 4678c5d5; failing test names match exactly (see evidence). Pre-existing, not introduced here."
+    ],
+    "evidence": "/tmp/tm413-evidence-final.md"
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188",
+    "admitted_base": "4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188",
+    "effective_base": "4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188",
+    "range_note": "The range 4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188..revision starts at the task admission commit.",
+    "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-413-manage-admit-cannot-admit-a-task-whose-worktree-",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-413-fbfd18054427d8cd1182e6c713ce357a8a2e7c8a.patch",
+    "patch_sha256": "14dbdf7cc92bc317e2b426c8c3ba41a0ae0ecf34e6519060c6a59af1db225fb2",
+    "packet_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-413-fbfd18054427d8cd1182e6c713ce357a8a2e7c8a.packet",
+    "packet_sha256": "c67594a2767552cda71f3af8664c04e6021f2f5973cc91476a04bcc8f3ed1c21",
+    "checks_unsatisfied": [
+      "agent-orchestration: unit: exited 1 at fbfd18054427d8cd1182e6c713ce357a8a2e7c8a",
+      "task-management: unit: exited 1 at fbfd18054427d8cd1182e6c713ce357a8a2e7c8a"
+    ],
+    "nonce": "79596f87-84d3-4ff0-b4d2-42fc019cfa19",
+    "task": "TM-413",
+    "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "created_at": "2026-10-09T04:45:54.211Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-10-09T04:45:54.754Z"
+    },
+    "state": "published",
+    "collection": {
+      "at": "2026-10-09T04:45:55.864Z",
+      "code": "TOPOLOGY_REVIEWER_NO_VERDICT",
+      "reason": "No verdict has been submitted for review request 79596f87-84d3-4ff0-b4d2-42fc019cfa19 yet. The reviewer submits it with its review_submit tool (or: ao-topology review submit 79596f87-84d3-4ff0-b4d2-42fc019cfa19 --verdict <verdict> --findings @file.json)."
+    },
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-413-fbfd18054427d8cd1182e6c713ce357a8a2e7c8a.json"
+  },
+  "review": {
+    "base_revision": "4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188",
+    "admitted_base": "4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188",
+    "effective_base": "4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188",
+    "patch_sha256": "14dbdf7cc92bc317e2b426c8c3ba41a0ae0ecf34e6519060c6a59af1db225fb2",
+    "task": "TM-413",
+    "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "task-management/lib/worktree.mjs",
+        "line": 279,
+        "claim": "If a sibling is already active on the shared inherited placement, the other sibling is still refused with 'task placement has another writer' instead of getting its own worktree.",
+        "evidence": "`const inherited = !mainStamp && !named && sharers.length > 0 && !sharers.some(active);`. When this is false, the inherited path stays this task's and conflicts with the active sibling.",
+        "fix": "In a follow-up, treat a placement not named after this task as not this task's whenever another task records it, active or not."
+      },
+      {
+        "severity": "minor",
+        "file": "task-management/tests/test-worktree.sh",
+        "line": 124,
+        "claim": "The regression test sits outside the required unit glob, and no test admits a task end to end through `manage admit`.",
+        "evidence": "The test is in test-worktree.sh; the required task-management unit check runs tests/unit/*.test.mjs.",
+        "fix": "In a follow-up, move it into tests/unit, or add test-worktree.sh to the required checks, and add an admit-level case."
+      },
+      {
+        "severity": "note",
+        "file": "task-management/CHANGELOG.md",
+        "line": 9,
+        "claim": "I reviewed revision fbfd1805 (patch sha256 14dbdf7c…), the same patch I approved under request 66a73893. Every required check is satisfied with host-run results, including plugin-rsync tests (added to the required set since then) with 0 failing, plus agent-orchestration unit 1287 and 0, task-management unit 1665 and 0, and the test-worktree.sh regression run. A placement shared with another task and not named after this one is provisioned fresh, and the task its branch is named after keeps it. All files are within the touches."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "request_nonce": "619ff1ec-402c-44fe-ae15-090377cacda6",
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a",
+    "created_at": "2026-10-10T04:42:30.559Z"
+  },
+  "merge": {
+    "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a",
+    "landed": "86e37843ce3670801868ddc324e90758469c82ef",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "fbfd18054427d8cd1182e6c713ce357a8a2e7c8a",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR #244 merged: faro APPROVE at fbfd1805 with all 7 required checks host-run clean, CI green",
+      "policy_auto_merge": true,
+      "at": "2026-10-10T04:42:53.862Z"
+    }
+  }
+}

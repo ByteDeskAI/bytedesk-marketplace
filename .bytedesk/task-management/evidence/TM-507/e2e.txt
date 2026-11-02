@@ -1,0 +1,10 @@
+== seeded: hook mentions refresh: 0; git status:
+== control: hook mentions refresh: 1; git status:
+ M .claude/helpers/graft-hooks.cjs
+ M .claude/helpers/graft-statusline.cjs
+ M .claude/settings.json
+ M .claude/skills/graft/SKILL.md
+ M .grok/config.toml
+ M .grok/skills/graft/SKILL.md
+ M .mcp.json
+?? opencode.json

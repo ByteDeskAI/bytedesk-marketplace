@@ -6,7 +6,7 @@ created: "2026-09-17T08:03:56.024Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: the ack cache compares volatile fields it does not claim to, and a miss names nothing"
 epic: "EP-019"
-acceptance: [{"text":"recentAck compares exactly the fields that establish incarnation identity — the BINDING_KEYS six-tuple — rather than whole-object JSON, so pane title, liveness and key order cannot invalidate a valid proof","done":false},{"text":"A cache miss records which field differed, so a false miss is distinguishable from a genuine respawn after the fact","done":false},{"text":"A test pins the contract: a proof whose binding differs ONLY in title or alive is still accepted, and one differing in any of the six is rejected","done":false}]
+acceptance: [{"text":"recentAck compares exactly the fields that establish incarnation identity — the BINDING_KEYS six-tuple — rather than whole-object JSON, so pane title, liveness and key order cannot invalidate a valid proof","done":true,"at":"2026-10-02T05:14:32.883Z"},{"text":"a cache miss and every TOPOLOGY_LEAD_PROBE_OWNER refusal name the failing field or condition","done":false},{"text":"A test pins the contract: a proof whose binding differs ONLY in title or alive is still accepted, and one differing in any of the six is rejected","done":false}]
 evidence: []
 commits: []
 blockedBy: []
@@ -17,10 +17,10 @@ branch: "feat/dispatch-duplicate-guard"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
 labels: ["ready-for-agent"]
 triagedBy: "auto"
-updated: "2026-09-17T12:57:44.464Z"
+updated: "2026-10-02T05:14:34.129Z"
 type: "bug"
 priority: "medium"
-comments: [{"author":"main","ts":"2026-09-17T12:57:44.458Z","text":"Same defect class, one function away, observed 2026-09-17: leadNonceAck's TOPOLOGY_LEAD_PROBE_OWNER covers THREE conditions in one invariant — wrong repo, wrong agent, or past expiry — and its message names none of them. After a usage-limit gap, four queued probes refused: three TOPOLOGY_LEAD_PROBE_UNKNOWN (swept) and one OWNER. Identifying the OWNER case as simply expired (by 2758s; agent_id and repo_id both matched) required opening the probe JSON by hand. Worth folding into AC2 — 'a refusal names which condition failed' — rather than filing a near-duplicate task. Note the refusals themselves were CORRECT: the probe was minted 08:02:54, waited to 08:03:24, expired 08:05:24 (30s wait + the 120s TM-187 grace), and the ack attempt came at 08:51."}]
+comments: [{"author":"main","ts":"2026-09-17T12:57:44.458Z","text":"Same defect class, one function away, observed 2026-09-17: leadNonceAck's TOPOLOGY_LEAD_PROBE_OWNER covers THREE conditions in one invariant — wrong repo, wrong agent, or past expiry — and its message names none of them. After a usage-limit gap, four queued probes refused: three TOPOLOGY_LEAD_PROBE_UNKNOWN (swept) and one OWNER. Identifying the OWNER case as simply expired (by 2758s; agent_id and repo_id both matched) required opening the probe JSON by hand. Worth folding into AC2 — 'a refusal names which condition failed' — rather than filing a near-duplicate task. Note the refusals themselves were CORRECT: the probe was minted 08:02:54, waited to 08:03:24, expired 08:05:24 (30s wait + the 120s TM-187 grace), and the ack attempt came at 08:51."},{"author":"main","ts":"2026-10-02T05:14:32.524Z","text":"TM-288 board review (approved by Ryan 2026-10-02): AC1 is met by c0a66d6c (lead.mjs:247/252: recentAck compares the binding six-tuple). Ticking AC1; AC2 rewritten; AC3 unchanged (removed and re-added to keep its number)."}]
 ---
 
 `recentAck` in `topology/lib/lead.mjs` decides whether a cached acknowledgement still proves THIS

@@ -1,0 +1,10 @@
+== base tests/unit/goal-loop-console.test.mjs
+not ok 1 - goal loop discovery and inspection retain workflow identity without exposing prompts or recipes
+not ok 2 - console reads separate publication and disposition facts without broker pulls or ACK
+# fail 2
+== base tests/unit/topology-prompt-modes.test.mjs
+not ok 6 - CLI: config get/set/validate, prompt preview --role/--agent, agent set-instructions
+# fail 1
+== base tests/unit/workflow-control.test.mjs
+not ok 9 - human review is idempotent, revision-bound and never bypasses independent integration
+# fail 1

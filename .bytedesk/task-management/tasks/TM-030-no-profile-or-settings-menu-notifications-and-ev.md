@@ -7,14 +7,14 @@ title: "No profile or settings menu — notifications and every other preference
 epic: "EP-002"
 acceptance: [{"text":"a settings menu holds notification preferences and every other board preference","done":true,"at":"2026-07-30T18:32:36.137Z"},{"text":"settings persist per repo, not per browser","done":true,"at":"2026-07-30T18:32:36.187Z"},{"text":"a profile menu shows who the board thinks you are","done":true,"at":"2026-07-30T18:32:36.237Z"}]
 evidence: []
-commits: ["https://github.com/ByteDeskAI/bytedesk-marketplace/pull/81"]
+commits: ["https://github.com/ByteDeskAI/bytedesk-marketplace/pull/81","https://github.com/ByteDeskAI/bytedesk-marketplace/pull/192","https://github.com/ByteDeskAI/bytedesk-marketplace/pull/220"]
 blockedBy: []
 blocks: ["TM-028","TM-029"]
 actor: "main"
 session: "55951e93-6838-4974-8033-11461bdd2dc4"
 branch: "feat/task-management-plugin"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-07-30T18:32:36.352Z"
+updated: "2026-10-05T14:56:39.135Z"
 type: "story"
 priority: "highest"
 labels: ["ui"]

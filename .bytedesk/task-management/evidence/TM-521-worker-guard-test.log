@@ -1,0 +1,204 @@
+TAP version 13
+# \# worker-guard: 30 rows, 104 blocked samples
+# \# pre-bash outside a worker, binaries that ran: []
+# \# pre-bash inside a worker, binaries that ran: ["node /home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-521-task-management-worker-guard-the-stale-integrati/task-management/bin/tm-hook pre-bash"]
+# Subtest: guardCommand — the table
+    # Subtest: every row has blocked samples, and each sample is blocked by THAT row
+    ok 1 - every row has blocked samples, and each sample is blocked by THAT row
+      ---
+      duration_ms: 10.955071
+      type: 'test'
+      ...
+    # Subtest: allows the finish line and ordinary work
+    ok 2 - allows the finish line and ordinary work
+      ---
+      duration_ms: 3.269128
+      type: 'test'
+      ...
+    1..2
+ok 1 - guardCommand — the table
+  ---
+  duration_ms: 15.69188
+  type: 'suite'
+  ...
+# Subtest: guardCommand — TM-235: a PR must target the configured integration branch
+    # Subtest: blocks a PR with no --base
+    ok 1 - blocks a PR with no --base
+      ---
+      duration_ms: 0.743348
+      type: 'test'
+      ...
+    # Subtest: blocks a PR based against the wrong branch
+    ok 2 - blocks a PR based against the wrong branch
+      ---
+      duration_ms: 0.273166
+      type: 'test'
+      ...
+    # Subtest: allows a PR based against the configured integration branch
+    ok 3 - allows a PR based against the configured integration branch
+      ---
+      duration_ms: 0.329041
+      type: 'test'
+      ...
+    # Subtest: fails safe when no integration branch is known for this worker
+    ok 4 - fails safe when no integration branch is known for this worker
+      ---
+      duration_ms: 0.266935
+      type: 'test'
+      ...
+    # Subtest: reads `gh pr new` exactly like `gh pr create`
+    ok 5 - reads `gh pr new` exactly like `gh pr create`
+      ---
+      duration_ms: 0.500089
+      type: 'test'
+      ...
+    # Subtest: refuses retargeting a PR's base with `gh pr edit --base`
+    ok 6 - refuses retargeting a PR's base with `gh pr edit --base`
+      ---
+      duration_ms: 0.587117
+      type: 'test'
+      ...
+    # Subtest: refuses raw-API PR writes that carry a base field
+    ok 7 - refuses raw-API PR writes that carry a base field
+      ---
+      duration_ms: 0.788677
+      type: 'test'
+      ...
+    1..7
+ok 2 - guardCommand — TM-235: a PR must target the configured integration branch
+  ---
+  duration_ms: 4.408471
+  type: 'suite'
+  ...
+# Subtest: guardCommand — the shell a worker actually writes
+    # Subtest: blocks a guarded command inside compound, wrapped and nested forms
+    ok 1 - blocks a guarded command inside compound, wrapped and nested forms
+      ---
+      duration_ms: 1.938111
+      type: 'test'
+      ...
+    # Subtest: fails safe on what it cannot read, but only when it mentions git push, gh or a guarded tool
+    ok 2 - fails safe on what it cannot read, but only when it mentions git push, gh or a guarded tool
+      ---
+      duration_ms: 1.141433
+      type: 'test'
+      ...
+    # Subtest: TM-521: a tm block reason that quotes a refused command is data, and the command itself is still refused
+    ok 3 - TM-521: a tm block reason that quotes a refused command is data, and the command itself is still refused
+      ---
+      duration_ms: 0.642878
+      type: 'test'
+      ...
+    # Subtest: a push that relies on HEAD is allowed only while HEAD is the worker's own branch
+    ok 4 - a push that relies on HEAD is allowed only while HEAD is the worker's own branch
+      ---
+      duration_ms: 1.048237
+      type: 'test'
+      ...
+    # Subtest: with no own branch known, every push is refused and ordinary git still runs
+    ok 5 - with no own branch known, every push is refused and ordinary git still runs
+      ---
+      duration_ms: 0.415325
+      type: 'test'
+      ...
+    # Subtest: a rebase that rewrites main is refused; rebasing the own branch onto main is not
+    ok 6 - a rebase that rewrites main is refused; rebasing the own branch onto main is not
+      ---
+      duration_ms: 0.129025
+      type: 'test'
+      ...
+    1..6
+ok 3 - guardCommand — the shell a worker actually writes
+  ---
+  duration_ms: 5.762422
+  type: 'suite'
+  ...
+# Subtest: tm-hook.sh pre-bash — the glue
+    # Subtest: outside a worker, exits 0 without starting Node — and the same shim does see Node start inside one
+    ok 1 - outside a worker, exits 0 without starting Node — and the same shim does see Node start inside one
+      ---
+      duration_ms: 27.123596
+      type: 'test'
+      ...
+    # Subtest: in a worker, exits 2 with a reason for one sample of every row, and 0 for the finish line
+    ok 2 - in a worker, exits 2 with a reason for one sample of every row, and 0 for the finish line
+      ---
+      duration_ms: 3290.439823
+      type: 'test'
+      ...
+    # Subtest: in a worker without TM_DISPATCH_BRANCH, the own branch is read from the payload's cwd
+    ok 3 - in a worker without TM_DISPATCH_BRANCH, the own branch is read from the payload's cwd
+      ---
+      duration_ms: 263.170614
+      type: 'test'
+      ...
+    # Subtest: in a worker, an unreadable payload is refused rather than waved through
+    ok 4 - in a worker, an unreadable payload is refused rather than waved through
+      ---
+      duration_ms: 69.847855
+      type: 'test'
+      ...
+    1..4
+ok 4 - tm-hook.sh pre-bash — the glue
+  ---
+  duration_ms: 3651.008846
+  type: 'suite'
+  ...
+# Subtest: tm-hook.sh pre-bash — the guard releases when the task does
+    # Subtest: a done task releases it — the branch is gone and the session still works
+    ok 1 - a done task releases it — the branch is gone and the session still works
+      ---
+      duration_ms: 184.902563
+      type: 'test'
+      ...
+    # Subtest: a deleted task releases it too
+    ok 2 - a deleted task releases it too
+      ---
+      duration_ms: 172.477932
+      type: 'test'
+      ...
+    # Subtest: an open task does NOT release it
+    ok 3 - an open task does NOT release it
+      ---
+      duration_ms: 159.293589
+      type: 'test'
+      ...
+    # Subtest: a task it cannot read does NOT release it — a guard that cannot see must not stand down
+    ok 4 - a task it cannot read does NOT release it — a guard that cannot see must not stand down
+      ---
+      duration_ms: 96.474481
+      type: 'test'
+      ...
+    # Subtest: without TM_ROOT, the task's recorded branch identifies it
+    ok 5 - without TM_ROOT, the task's recorded branch identifies it
+      ---
+      duration_ms: 249.817248
+      type: 'test'
+      ...
+    # Subtest: a same-id task done in ANOTHER store does NOT release it
+    ok 6 - a same-id task done in ANOTHER store does NOT release it
+      ---
+      duration_ms: 256.846563
+      type: 'test'
+      ...
+    # Subtest: no pin at all does NOT release it
+    ok 7 - no pin at all does NOT release it
+      ---
+      duration_ms: 116.088423
+      type: 'test'
+      ...
+    1..7
+ok 5 - tm-hook.sh pre-bash — the guard releases when the task does
+  ---
+  duration_ms: 1236.653453
+  type: 'suite'
+  ...
+1..5
+# tests 26
+# suites 5
+# pass 26
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5072.094481

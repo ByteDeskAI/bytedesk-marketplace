@@ -1,0 +1,118 @@
+TAP version 13
+# Subtest: eight ensures converge and restart preserves reviewer identity
+ok 1 - eight ensures converge and restart preserves reviewer identity
+  ---
+  duration_ms: 325.656469
+  type: 'test'
+  ...
+# Subtest: alive reviewer is unavailable without nonce; only current reviewer can acknowledge
+ok 2 - alive reviewer is unavailable without nonce; only current reviewer can acknowledge
+  ---
+  duration_ms: 103.448074
+  type: 'test'
+  ...
+# Subtest: read-only reviewer readiness neither rings nor consumes missing, invalid or valid proof
+ok 3 - read-only reviewer readiness neither rings nor consumes missing, invalid or valid proof
+  ---
+  duration_ms: 70.760842
+  type: 'test'
+  ...
+# Subtest: review record rejects impersonation, self review, findings and abbreviated commits
+ok 4 - review record rejects impersonation, self review, findings and abbreviated commits
+  ---
+  duration_ms: 332.059685
+  type: 'test'
+  ...
+# Subtest: host collects nonce-bound read-only output and rejects forged response nonces
+ok 5 - host collects nonce-bound read-only output and rejects forged response nonces
+  ---
+  duration_ms: 251.651952
+  type: 'test'
+  ...
+# Subtest: TM-214: the reviewer stays read-only even though every other agent now defaults to auto_approve
+ok 6 - TM-214: the reviewer stays read-only even though every other agent now defaults to auto_approve
+  ---
+  duration_ms: 82.93068
+  type: 'test'
+  ...
+# Subtest: TM-214: createAgent stores auto_approve false for any reviewer, and session open refuses the reviewer role
+ok 7 - TM-214: createAgent stores auto_approve false for any reviewer, and session open refuses the reviewer role
+  ---
+  duration_ms: 147.891022
+  type: 'test'
+  ...
+# Subtest: concurrent review collectors record one response and replaced reviewer bindings require a fresh nonce
+ok 8 - concurrent review collectors record one response and replaced reviewer bindings require a fresh nonce
+  ---
+  duration_ms: 304.773177
+  type: 'test'
+  ...
+# Subtest: linked worktrees share reviewer identity and exact review evidence
+ok 9 - linked worktrees share reviewer identity and exact review evidence
+  ---
+  duration_ms: 234.790949
+  type: 'test'
+  ...
+# Subtest: review covers harmful first commit and harmless final commit from trusted admission base
+ok 10 - review covers harmful first commit and harmless final commit from trusted admission base
+  ---
+  duration_ms: 651.531674
+  type: 'test'
+  ...
+# Subtest: reviewer prompt inputs are inside its explicit repo-scoped read-only grants
+ok 11 - reviewer prompt inputs are inside its explicit repo-scoped read-only grants
+  ---
+  duration_ms: 216.507594
+  type: 'test'
+  ...
+# Subtest: a reviewer probe outlives its own wait, so a mid-review reviewer can still answer
+ok 12 - a reviewer probe outlives its own wait, so a mid-review reviewer can still answer
+  ---
+  duration_ms: 436.907287
+  type: 'test'
+  ...
+# Subtest: same-name reviewer recovery rejects old and legacy readiness acknowledgements
+ok 13 - same-name reviewer recovery rejects old and legacy readiness acknowledgements
+  ---
+  duration_ms: 170.116042
+  type: 'test'
+  ...
+# Subtest: reviewer readiness does not cache output when the observed incarnation ends
+ok 14 - reviewer readiness does not cache output when the observed incarnation ends
+  ---
+  duration_ms: 144.292496
+  type: 'test'
+  ...
+# Subtest: assignment observes binding before the default liveness probe and leaves external owners stopped
+ok 15 - assignment observes binding before the default liveness probe and leaves external owners stopped
+  ---
+  duration_ms: 201.28981
+  type: 'test'
+  ...
+# Subtest: automatic review collection skips retained history and rotates unanswered batches
+ok 16 - automatic review collection skips retained history and rotates unanswered batches
+  ---
+  duration_ms: 3529.779661
+  type: 'test'
+  ...
+# Subtest: TM-241: a range over 8 MiB of binary files produces a request with a size manifest, not a generic refusal
+ok 17 - TM-241: a range over 8 MiB of binary files produces a request with a size manifest, not a generic refusal
+  ---
+  duration_ms: 706.802869
+  type: 'test'
+  ...
+# Subtest: TM-241: a forced git diff failure is reported with git's own exit code and stderr, not the generic sentence
+ok 18 - TM-241: a forced git diff failure is reported with git's own exit code and stderr, not the generic sentence
+  ---
+  duration_ms: 91.332831
+  type: 'test'
+  ...
+1..18
+# tests 18
+# suites 0
+# pass 18
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 8081.295731

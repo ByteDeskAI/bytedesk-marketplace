@@ -5,7 +5,7 @@ status: "blocked"
 created: "2026-09-24T21:08:03.031Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: approve pipeline (PR to develop, wait for CI, merge, then clean up)"
-epic: "EP-021"
+epic: "EP-025"
 acceptance: [{"text":"approve opens/updates the PR with the bundle body; CI wait and merge are journaled; tests with a fake forge","done":false},{"text":"Cleanup runs only after a verified merge and removes worktrees, branches and owned agent sessions; failures leave state intact with recovery","done":false},{"text":"Pipeline resumes after a crash without duplicating the PR or merge","done":false}]
 evidence: []
 commits: []
@@ -17,7 +17,7 @@ branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
 labels: ["ready-for-agent"]
 triagedBy: "auto"
-updated: "2026-09-24T22:26:40.604Z"
+updated: "2026-10-02T05:15:49.110Z"
 comments: [{"author":"main","ts":"2026-09-24T22:26:40.598Z","text":"Gateway link (from gateway lead d60f0608, 2026-09-24): serves gateway TM-448 (EP-027 P4, parked by Ryan)."}]
 ---
 

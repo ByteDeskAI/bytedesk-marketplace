@@ -1,0 +1,8 @@
+not ok 29 - record-landing records an operator landing that governed completion accepts, without merging
+not ok 36 - governed completion accepts a delegated integration record unchanged
+not ok 65 - TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+not ok 82 - TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+not ok 129 - TM-247 AC9: a develop merge-in on the approved revision is eligible, lands, cleans up and passes governed completion
+# tests 136
+# pass 131
+# fail 5

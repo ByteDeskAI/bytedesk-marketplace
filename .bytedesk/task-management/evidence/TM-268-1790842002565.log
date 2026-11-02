@@ -1,0 +1,4 @@
+Implementation: Marketplace PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/141, reviewed head f0cbd1d86a8148eca05b3d8dc5104dc05ac55b03.
+TM full unit suite: 1565 passed, 0 failed, 0 skipped (/tmp/goal-feedback-tm-final.log).
+Public CLI/MCP goal operations preserve immutable original intent, stable criterion IDs, typed findings, scope history, and receipt hashes. Tests reject stale scope/artifact, receipt drift, unresolved findings, unfinished or deleted child tasks, and scope-escape edits. Independent controller review verified the real public TM CLI completion/drift fixture.
+This is source/contract evidence. Merge, installed runtime and deployment evidence are tracked separately.

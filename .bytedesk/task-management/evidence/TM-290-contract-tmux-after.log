@@ -1,0 +1,52 @@
+TAP version 13
+# Subtest: an enrolled repository is activated by an ordinary verb and by a real session start
+ok 1 - an enrolled repository is activated by an ordinary verb and by a real session start
+  ---
+  duration_ms: 17058.918449
+  type: 'test'
+  ...
+# Subtest: an unenrolled repository gets no supervisor from an ordinary verb or a session start
+ok 2 - an unenrolled repository gets no supervisor from an ordinary verb or a session start
+  ---
+  duration_ms: 984.645814
+  type: 'test'
+  ...
+# Subtest: concurrent activations from linked worktrees leave exactly one supervisor process
+ok 3 - concurrent activations from linked worktrees leave exactly one supervisor process
+  ---
+  duration_ms: 8474.362332
+  type: 'test'
+  ...
+# Subtest: concurrent session starts across linked worktrees converge on one supervisor and one managed lead
+ok 4 - concurrent session starts across linked worktrees converge on one supervisor and one managed lead
+  ---
+  duration_ms: 40155.014126
+  type: 'test'
+  ...
+# Subtest: held mail to an unenrolled destination never starts a lead or a supervisor there
+ok 5 - held mail to an unenrolled destination never starts a lead or a supervisor there
+  ---
+  duration_ms: 38783.000991
+  type: 'test'
+  ...
+# Subtest: a dead managed lead is restarted by its own supervisor, then held cross-repository mail is delivered once
+ok 6 - a dead managed lead is restarted by its own supervisor, then held cross-repository mail is delivered once
+  ---
+  duration_ms: 80801.785322
+  type: 'test'
+  ...
+# Subtest: a live unresponsive lead is left running, unrestarted and unduplicated, while its mail stays held
+ok 7 - a live unresponsive lead is left running, unrestarted and unduplicated, while its mail stays held
+  ---
+  duration_ms: 69216.397459
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 188899.924288

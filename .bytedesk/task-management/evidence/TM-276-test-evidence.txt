@@ -1,0 +1,38 @@
+TM-276 test evidence — tree: HEAD 35488ce2 + staged TM-276 changes (graft noise unstaged, not under agent-orchestration/)
+Command per chunk: env -u TMUX node --import ./tests/helpers/tmux-preflight.mjs --import ./tests/unit/register-file-transport.mjs --test --test-concurrency=1 <files>
+== head-aa: # tests 44 # pass 44 # fail 0 
+== head-ab: # tests 110 # pass 110 # fail 0 
+== rest-aa: # tests 120 # pass 120 # fail 0 
+== rest-ab: # tests 172 # pass 172 # fail 0 
+== rest-ac: # tests 214 # pass 210 # fail 4 
+not ok 23 - record-landing records an operator landing that governed completion accepts, without merging
+not ok 30 - governed completion accepts a delegated integration record unchanged
+not ok 54 - TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+not ok 70 - TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+== rest-ad: # tests 119 # pass 119 # fail 0 
+== rest-ae: # tests 150 # pass 146 # fail 0 
+== base 35488ce2 (clean worktree), chunk ac: # tests 214 # pass 210 # fail 4 
+not ok 23 - record-landing records an operator landing that governed completion accepts, without merging
+not ok 30 - governed completion accepts a delegated integration record unchanged
+not ok 54 - TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+not ok 70 - TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+== runtime-diagnostics.test.mjs: tests 6,7 fail and the file hangs on BOTH this tree and clean base 35488ce2 (diagnostics fixture sees services install files); pre-existing.
+== build:check exit 0 after npm run build
+
+== nats-outage.test.mjs (real nats-server, real connect path):
+/tmp/tm276/head-aa.log:ok 41 - ensureLocalNats starts once, reuses, and refuses bad credentials
+/tmp/tm276/head-aa.log:ok 43 - redactUrl drops credentials and keeps host and port
+/tmp/tm276/head-aa.log:ok 44 - a dead ambient NATS_URL falls back to managed local and mails the lead once, then once on recovery
+/tmp/tm276/head-ab.log:ok 1 - unset AO_TRANSPORT selects NATS, not the file double
+/tmp/tm276/head-ab.log:ok 3 - NATS cases pass twice, survive a reconnect, and release the client
+
+== live supervise (temp repo enabled:false, NATS_URL=nats://127.0.0.1:4299 dead):
+{
+  "event": "transport-fallback",
+  "at": "2026-10-02T13:37:32.302Z",
+  "consumer": "/tmp/aot-6Zcu/repo",
+  "transport": "nats",
+  "source": "managed-local",
+  "url": "nats://127.0.0.1:42491",
+  "warning": "configured NATS nats://127.0.0.1:4299 (NATS_URL) is unreachable: CONNECTION_REFUSED; using managed-local nats://127.0.0.1:42491"
+}

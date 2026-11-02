@@ -1,0 +1,53 @@
+# TM-426 management.required_checks at 339fbf15926fbfe67926f985570ab25ad76ac199 (PR #245 head; merge of origin/main e251d0b8)
+# tree: worktree, dirty only with graft-rewired .claude/ .grok/ .mcp.json opencode.json (session-start hook, not part of the branch)
+# baseline: clean detached worktree of origin/main e251d0b876740d08951bb09483b545e20a3373ae
+
+## head
+agent-orchestration: npm ci	0	339fbf15926fbfe67926f985570ab25ad76ac199
+agent-orchestration: unit	1	339fbf15926fbfe67926f985570ab25ad76ac199
+agent-orchestration: build:check	0	339fbf15926fbfe67926f985570ab25ad76ac199
+task-management: unit	1	339fbf15926fbfe67926f985570ab25ad76ac199
+agent-orchestration: plugin validate	0	339fbf15926fbfe67926f985570ab25ad76ac199
+task-management: plugin validate	0	339fbf15926fbfe67926f985570ab25ad76ac199
+
+## base
+agent-orchestration: npm ci	0	e251d0b876740d08951bb09483b545e20a3373ae
+agent-orchestration: unit	1	e251d0b876740d08951bb09483b545e20a3373ae
+agent-orchestration: build:check	0	e251d0b876740d08951bb09483b545e20a3373ae
+task-management: unit	1	e251d0b876740d08951bb09483b545e20a3373ae
+agent-orchestration: plugin validate	0	e251d0b876740d08951bb09483b545e20a3373ae
+task-management: plugin validate	0	e251d0b876740d08951bb09483b545e20a3373ae
+
+## agent_orchestration__unit_: head # pass 1283 # fail 9  / base # pass 1283 # fail 9 
+failing only at head: 0; failing only at base: 0
+shared failures:
+- CLI: config get/set/validate, prompt preview --role/--agent, agent set-instructions
+- console reads separate publication and disposition facts without broker pulls or ACK
+- goal loop discovery and inspection retain workflow identity without exposing prompts or recipes
+- governed completion accepts a delegated integration record unchanged
+- human review is idempotent, revision-bound and never bypasses independent integration
+- record-landing records an operator landing that governed completion accepts, without merging
+- TM-247 AC9: a develop merge-in on the approved revision is eligible, lands, cleans up and passes governed completion
+- TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+- TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+
+## task_management__unit_: head # pass 1662 # fail 15  / base # pass 1662 # fail 15 
+failing only at head: 0; failing only at base: 0
+shared failures:
+- actor
+- the event log's session column
+- TM-247 governed worker lifecycle (task-management)
+- tm_claim
+- tm_task_update start
+- tm_worktree new claims and provisions, rm releases and removes, list reads — and refuses a held task
+
+## TM-426 regression tests at head
+ok 711 - stop-worker refuses unowned, uncollected and active workers and closes an owned idle pane
+ok 789 - TM-247 AC1/AC4: a live worker is never retired; a dead one is retired with its observation and the worktree kept
+ok 790 - TM-247 AC2/AC4: after a retire, start-worker binds a successor whose finish queues review under the original base
+ok 791 - TM-247 AC3: stop-worker on a task whose claim was released names the re-claim step
+ok 793 - TM-247 AC14/AC15: a worker that ran tm block is retired with its blocker; unblock, then start-worker re-claims and replaces it
+ok 162 - governed completion is shared by every task write surface
+ok 444 - the dispatched worker
+
+## plugin-rsync: tests at 339fbf15 (clean detached worktree): exit 0, 33 passed, 0 failed

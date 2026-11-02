@@ -1,0 +1,265 @@
+{
+  "task": "TM-412",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-10-09T03:33:15.812Z",
+      "owner": "fd2b831f",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-412-ao-preserve-admitted-task-ownership-when-lead-de",
+      "branch": "tm/TM-412-ao-preserve-admitted-task-ownership-when-lead-de",
+      "base_revision": "4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188",
+      "base_source": "server-tip",
+      "intent": "TM-412 AC1 only (AC2 is covered by TM-360): an admitted, lead-owned task whose dispatched run was collected or exited can have its finish reported from an existing operator terminal under the lead claim through one documented, authorized binding path. Reuse TM-247's retire and successor path and TM-417's rebind; keep the original base_revision and admission; add no bypass. Repro: agent-browser TM-033, 'manage report' fails with TOPOLOGY_MANAGEMENT_WORKER 'Only a currently live registered worker can establish a new ownership binding'.",
+      "boundaries": [
+        "agent-orchestration topology/lib/management.mjs report and binding paths, topology/cli.mjs manage lines, tests, CHANGELOG, dist, ROADMAP-SOURCES.json",
+        "no reviewer, slots, delegation, standing-mailbox, lead, delivery or persona-registry modules (owned by in-flight TM-427, TM-478 and TM-484)",
+        "no version bumps; temp stores only, no real tmux"
+      ],
+      "dependencies": [],
+      "checks": [
+        "cd agent-orchestration && npm ci",
+        "env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_TRANSPORT -u TM_DISPATCH_WORKER timeout 1500 npm run -s test:unit",
+        "npm run -s build && npm run -s build:check",
+        "npm run -s roadmap:check",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/topology/cli.mjs",
+        "agent-orchestration/topology/lib/management.mjs"
+      ]
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T03:47:52.912Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "7f0788b9042c7cc17c65d8b294dcda0fbb55a4aa",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/243",
+          "agent-orchestration/topology/lib/management.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs"
+        ],
+        "checks": [
+          "npm ci: exit 0",
+          "npm run build: exit 0",
+          "npm run build:check: exit 0",
+          "npm run roadmap:check: exit 0",
+          "claude plugin validate ./agent-orchestration: exit 0 (expected version warning)",
+          "npm run test:unit: exit 0, 1292 tests, 1288 pass, 0 fail, 4 skipped"
+        ],
+        "risks": [
+          "liveDispatch restates tm priorCollection stamp test; a change to tm's collected stamp must be mirrored"
+        ],
+        "evidence": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/task-management/evidence/TM-412-checks.log"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-10-09T05:24:12.646Z",
+      "revision": "7f0788b9042c7cc17c65d8b294dcda0fbb55a4aa",
+      "landed": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "7f0788b9042c7cc17c65d8b294dcda0fbb55a4aa",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR #243 merged to main by the marketplace lead under standing autonomy: faro APPROVE at 7f0788b9, synced with main at 1c15384f (dist rebuild only, PR hunks verified identical), CI green",
+        "policy_auto_merge": true,
+        "at": "2026-10-09T05:24:12.055Z"
+      }
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-09T05:24:13.688Z",
+      "worker": {
+        "name": "agent:TM-412-fd2b831f",
+        "run": "tmux:tm-TM-412",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-09T03:33:25.261Z",
+        "observed_at": "2026-10-09T03:47:52.906Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-412",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$140",
+          "sessionCreated": 1791516804,
+          "paneId": "%199",
+          "panePid": 3553144
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "cleanup",
+      "at": "2026-10-09T05:24:16.619Z",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-412-ao-preserve-admitted-task-ownership-when-lead-de",
+      "branch": "tm/TM-412-ao-preserve-admitted-task-ownership-when-lead-de",
+      "status": "complete"
+    }
+  ],
+  "updated_at": "2026-10-09T05:24:16.619Z",
+  "integration_branch": null,
+  "base_revision": "4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188",
+  "base_source": "server-tip",
+  "owner": "fd2b831f",
+  "workflow_run_id": "tm-TM-412",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-412-ao-preserve-admitted-task-ownership-when-lead-de",
+  "branch": "tm/TM-412-ao-preserve-admitted-task-ownership-when-lead-de",
+  "started": true,
+  "state": "cleaned",
+  "worker": {
+    "name": "agent:TM-412-fd2b831f",
+    "run": "tmux:tm-TM-412",
+    "backend": "tmux",
+    "owner": "fd2b831f",
+    "registered_at": "2026-10-09T03:33:25.261Z",
+    "observed_at": "2026-10-09T03:47:52.906Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-412",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$140",
+      "sessionCreated": 1791516804,
+      "paneId": "%199",
+      "panePid": 3553144
+    },
+    "stopped_at": "2026-10-09T05:24:13.688Z"
+  },
+  "finish": {
+    "revision": "7f0788b9042c7cc17c65d8b294dcda0fbb55a4aa",
+    "artifacts": [
+      "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/243",
+      "agent-orchestration/topology/lib/management.mjs",
+      "agent-orchestration/tests/unit/topology-management.test.mjs"
+    ],
+    "checks": [
+      "npm ci: exit 0",
+      "npm run build: exit 0",
+      "npm run build:check: exit 0",
+      "npm run roadmap:check: exit 0",
+      "claude plugin validate ./agent-orchestration: exit 0 (expected version warning)",
+      "npm run test:unit: exit 0, 1292 tests, 1288 pass, 0 fail, 4 skipped"
+    ],
+    "risks": [
+      "liveDispatch restates tm priorCollection stamp test; a change to tm's collected stamp must be mirrored"
+    ],
+    "evidence": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/task-management/evidence/TM-412-checks.log"
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188",
+    "admitted_base": "4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188",
+    "effective_base": "4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188",
+    "range_note": "The range 4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188..revision starts at the task admission commit.",
+    "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-412-ao-preserve-admitted-task-ownership-when-lead-de",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-412-7f0788b9042c7cc17c65d8b294dcda0fbb55a4aa.patch",
+    "patch_sha256": "0b946e12eb53148b6d95302c39800fef170b8b295fd6f7768f1eafa503450ee7",
+    "packet_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-412-7f0788b9042c7cc17c65d8b294dcda0fbb55a4aa.packet",
+    "packet_sha256": "54625b9307ef7da7ecacb2dc1a14c5ff8110a1fd12627434fa74035d2a7b2745",
+    "checks_unsatisfied": [
+      "agent-orchestration: npm ci: no evidence",
+      "agent-orchestration: unit: no evidence",
+      "agent-orchestration: build:check: no evidence",
+      "task-management: unit: no evidence",
+      "agent-orchestration: plugin validate: no evidence",
+      "task-management: plugin validate: no evidence"
+    ],
+    "nonce": "eb35e771-230f-4c73-98b0-790e1f7b0c8a",
+    "task": "TM-412",
+    "revision": "7f0788b9042c7cc17c65d8b294dcda0fbb55a4aa",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "created_at": "2026-10-09T03:47:55.446Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-10-09T03:47:55.981Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-412-7f0788b9042c7cc17c65d8b294dcda0fbb55a4aa.json"
+  },
+  "review": {
+    "base_revision": "4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188",
+    "admitted_base": "4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188",
+    "effective_base": "4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188",
+    "patch_sha256": "0b946e12eb53148b6d95302c39800fef170b8b295fd6f7768f1eafa503450ee7",
+    "task": "TM-412",
+    "revision": "7f0788b9042c7cc17c65d8b294dcda0fbb55a4aa",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "agent-orchestration/tests/unit/topology-management.test.mjs",
+        "line": 245,
+        "claim": "Criterion 2 (pool dispatch adds no overlapping writer) is shown only indirectly. The test asserts that `manage assignment` now reports the adopted process. It never runs tm's duplicate-dispatch guard (TM-360) or a pool tick against that answer.",
+        "evidence": "Line 245 asserts only `assignmentResult(actual).worker` equals `{ kind: 'process', backend: 'process', run: 'process:<pid>' }`. No tm dispatch or pool call follows.",
+        "fix": "In a follow-up, add a step that runs tm's guard, or a pool tick, for the bound task and asserts it refuses to dispatch, or cite the tm test that covers a `process` worker from `manage assignment`."
+      },
+      {
+        "severity": "note",
+        "file": "agent-orchestration/topology/lib/management.mjs",
+        "line": 285,
+        "claim": "I reviewed revision 7f0788b9 (patch sha256 0b946e12…), the same patch as request eb35e771, which was blocked only for missing evidence. All six required checks are now satisfied with host-run log tails: agent-orchestration unit has 1288 passing and 0 failing, task-management unit has 1665 passing and 0 failing, and build:check and both plugin validates exit 0. liveDispatch counts a dispatch as history only when `collected` is stamped for that exact dispatch (`at` and `run`). Bind, report, liveness and the dispatchedSession holder all use it, and an uncollected dispatch is still refused, with `tm collect` named. Criterion 1 is evidenced: the finish is recorded with the admitted base_revision unchanged, and a live terminal still blocks integration until it exits. All changed files are within the approved touches."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "request_nonce": "96a906a3-bc15-4542-b58c-deb6fbc00ddd",
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "7f0788b9042c7cc17c65d8b294dcda0fbb55a4aa",
+    "created_at": "2026-10-09T04:54:22.084Z"
+  },
+  "merge": {
+    "revision": "7f0788b9042c7cc17c65d8b294dcda0fbb55a4aa",
+    "landed": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "7f0788b9042c7cc17c65d8b294dcda0fbb55a4aa",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR #243 merged to main by the marketplace lead under standing autonomy: faro APPROVE at 7f0788b9, synced with main at 1c15384f (dist rebuild only, PR hunks verified identical), CI green",
+      "policy_auto_merge": true,
+      "at": "2026-10-09T05:24:12.055Z"
+    }
+  }
+}

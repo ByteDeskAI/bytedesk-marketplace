@@ -1,0 +1,413 @@
+{
+  "task": "TM-525",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-10-09T07:54:38.415Z",
+      "owner": "fd2b831f",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-525-ao-reviewer-a-reviewer-that-cannot-submit-stale-",
+      "branch": "tm/TM-525-ao-reviewer-a-reviewer-that-cannot-submit-stale-",
+      "base_revision": "15a6cddb8f6c088da5cfe4559805100c6427ac70",
+      "base_source": "server-tip",
+      "intent": "TM-525: a lead-only ao-topology reviewer withdraw --task <id> --revision <sha> --reason <text> (TM-427 identity via the existing lead proof; refuse workers and reviewers). It marks an uncollected request state failed with collection {code:WITHDRAWN, reason, by, at} and records a management event; uncollectedReviewRequests already excludes failed, so agent restart of a reviewer that cannot submit proceeds; a withdrawn request can never be collected afterwards; doctor TM-520 advice names withdraw, then restart, then re-request.",
+      "boundaries": [
+        "agent-orchestration topology/lib/review-withdraw.mjs (new), topology/cli.mjs reviewer withdraw line, doctor.mjs advice text, tests, CHANGELOG, dist",
+        "NO changes to reviewer.mjs logic (owned by TM-427); read its exports only",
+        "no version bumps; temp dirs, no real tmux"
+      ],
+      "dependencies": [],
+      "checks": [
+        "cd agent-orchestration && npm ci",
+        "npm run -s test:unit",
+        "npm run -s build && npm run -s build:check",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/dist/cli.cjs",
+        "agent-orchestration/dist/mcp.cjs",
+        "agent-orchestration/tests/unit/topology-review-withdraw.test.mjs",
+        "agent-orchestration/topology/cli.mjs",
+        "agent-orchestration/topology/lib/doctor.mjs",
+        "agent-orchestration/topology/lib/review-withdraw.mjs"
+      ]
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T08:37:33.920Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/255",
+          "agent-orchestration/topology/lib/reviewer.mjs",
+          "agent-orchestration/topology/lib/doctor.mjs",
+          "agent-orchestration/topology/cli.mjs"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+          },
+          {
+            "name": "agent-orchestration: unit",
+            "command": "sh -c cd agent-orchestration && env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" npm run -s test:unit",
+            "exit_code": 1,
+            "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c cd task-management && env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" node --test tests/unit/*.test.mjs",
+            "exit_code": 1,
+            "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+          },
+          {
+            "name": "plugin-rsync: tests",
+            "command": "sh -c env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" bash plugin-rsync/tests/test-plugin-rsync.sh",
+            "exit_code": 0,
+            "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+          }
+        ],
+        "risks": [
+          "agent-orchestration unit (10 fail) and task-management unit (41 fail) exit 1 in this dispatched-worker session; origin/main 377e2886 fails the same tests in the same session (TM-306 environment, worker-identity guard). No failure is new on this branch; the 4 new tests pass. Needs a rerun outside a worker session.",
+          "No MCP tool for reviewer withdraw yet; CLI only."
+        ],
+        "evidence": ".bytedesk/task-management/evidence/TM-525-evidence.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T08:37:42.226Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/255",
+          "agent-orchestration/topology/lib/reviewer.mjs",
+          "agent-orchestration/topology/lib/doctor.mjs",
+          "agent-orchestration/topology/cli.mjs"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+          },
+          {
+            "name": "agent-orchestration: unit",
+            "command": "sh -c cd agent-orchestration && env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" npm run -s test:unit",
+            "exit_code": 1,
+            "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c cd task-management && env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" node --test tests/unit/*.test.mjs",
+            "exit_code": 1,
+            "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+          },
+          {
+            "name": "plugin-rsync: tests",
+            "command": "sh -c env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" bash plugin-rsync/tests/test-plugin-rsync.sh",
+            "exit_code": 0,
+            "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+          }
+        ],
+        "risks": [
+          "agent-orchestration unit (10 fail) and task-management unit (41 fail) exit 1 in this dispatched-worker session; origin/main 377e2886 fails the same tests in the same session (TM-306 environment, worker-identity guard). No failure is new on this branch; the 4 new tests pass. Needs a rerun outside a worker session.",
+          "No MCP tool for reviewer withdraw yet; CLI only."
+        ],
+        "evidence": ".bytedesk/task-management/evidence/TM-525-evidence.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-10-09T09:52:42.677Z",
+      "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7",
+      "landed": "36ca5437f9ceb82b018463d23050e5556db86de3",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR #255 merged: Independent governed review (faro): APPROVE at d1f8e1ba with all required checks clean (lead-run: AO 1337/0 on the second full run after one untouched-test load flake that passed 10/10 alone; tm 1703/0; plugin-rsync 50/0).",
+        "policy_auto_merge": true,
+        "at": "2026-10-09T09:52:42.198Z"
+      }
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-09T09:52:43.523Z",
+      "worker": {
+        "name": "agent:TM-525-fd2b831f",
+        "run": "tmux:tm-TM-525",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-09T07:54:41.495Z",
+        "observed_at": "2026-10-09T08:37:33.913Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-525",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$157",
+          "sessionCreated": 1791532481,
+          "paneId": "%222",
+          "panePid": 1379845
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "cleanup",
+      "at": "2026-10-09T09:52:45.962Z",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-525-ao-reviewer-a-reviewer-that-cannot-submit-stale-",
+      "branch": "tm/TM-525-ao-reviewer-a-reviewer-that-cannot-submit-stale-",
+      "status": "complete"
+    }
+  ],
+  "updated_at": "2026-10-09T09:52:45.962Z",
+  "integration_branch": null,
+  "base_revision": "15a6cddb8f6c088da5cfe4559805100c6427ac70",
+  "base_source": "server-tip",
+  "owner": "fd2b831f",
+  "workflow_run_id": "tm-TM-525",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-525-ao-reviewer-a-reviewer-that-cannot-submit-stale-",
+  "branch": "tm/TM-525-ao-reviewer-a-reviewer-that-cannot-submit-stale-",
+  "started": true,
+  "state": "cleaned",
+  "worker": {
+    "name": "agent:TM-525-fd2b831f",
+    "run": "tmux:tm-TM-525",
+    "backend": "tmux",
+    "owner": "fd2b831f",
+    "registered_at": "2026-10-09T07:54:41.495Z",
+    "observed_at": "2026-10-09T08:37:33.913Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-525",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$157",
+      "sessionCreated": 1791532481,
+      "paneId": "%222",
+      "panePid": 1379845
+    },
+    "stopped_at": "2026-10-09T09:52:43.523Z"
+  },
+  "finish": {
+    "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7",
+    "artifacts": [
+      "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/255",
+      "agent-orchestration/topology/lib/reviewer.mjs",
+      "agent-orchestration/topology/lib/doctor.mjs",
+      "agent-orchestration/topology/cli.mjs"
+    ],
+    "checks": [
+      {
+        "name": "agent-orchestration: npm ci",
+        "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+        "exit_code": 0,
+        "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+      },
+      {
+        "name": "agent-orchestration: unit",
+        "command": "sh -c cd agent-orchestration && env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" npm run -s test:unit",
+        "exit_code": 1,
+        "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+      },
+      {
+        "name": "agent-orchestration: build:check",
+        "command": "npm --prefix agent-orchestration run -s build:check",
+        "exit_code": 0,
+        "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+      },
+      {
+        "name": "task-management: unit",
+        "command": "sh -c cd task-management && env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" node --test tests/unit/*.test.mjs",
+        "exit_code": 1,
+        "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+      },
+      {
+        "name": "agent-orchestration: plugin validate",
+        "command": "claude plugin validate ./agent-orchestration",
+        "exit_code": 0,
+        "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+      },
+      {
+        "name": "task-management: plugin validate",
+        "command": "claude plugin validate ./task-management",
+        "exit_code": 0,
+        "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+      },
+      {
+        "name": "plugin-rsync: tests",
+        "command": "sh -c env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" bash plugin-rsync/tests/test-plugin-rsync.sh",
+        "exit_code": 0,
+        "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+      }
+    ],
+    "risks": [
+      "agent-orchestration unit (10 fail) and task-management unit (41 fail) exit 1 in this dispatched-worker session; origin/main 377e2886 fails the same tests in the same session (TM-306 environment, worker-identity guard). No failure is new on this branch; the 4 new tests pass. Needs a rerun outside a worker session.",
+      "No MCP tool for reviewer withdraw yet; CLI only."
+    ],
+    "evidence": ".bytedesk/task-management/evidence/TM-525-evidence.md"
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "377e2886d1a6879872110a122cc6abcf3975ac3f",
+    "admitted_base": "15a6cddb8f6c088da5cfe4559805100c6427ac70",
+    "effective_base": "377e2886d1a6879872110a122cc6abcf3975ac3f",
+    "range_note": "The range 377e2886d1a6879872110a122cc6abcf3975ac3f..revision excludes code already on the default branch at 377e2886d1a6879872110a122cc6abcf3975ac3f; the task was admitted at 15a6cddb8f6c088da5cfe4559805100c6427ac70 and later merged the default branch. Judge only this task's own changes.",
+    "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-525-ao-reviewer-a-reviewer-that-cannot-submit-stale-",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-525-d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7.patch",
+    "patch_sha256": "151dd9a5b28cd573958b22e2e4d57848d9c688690ed68b3482637ac5a306b91e",
+    "packet_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-525-d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7.packet",
+    "packet_sha256": "f6c878b6c050dd445f25340ce12c418371a2cd8f53f6f71d61e0c7057074b899",
+    "checks_unsatisfied": [
+      "agent-orchestration: unit: exited 1 at d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7",
+      "task-management: unit: exited 1 at d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7"
+    ],
+    "nonce": "974629f8-4057-4a26-90b2-a850d38156fc",
+    "task": "TM-525",
+    "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "created_at": "2026-10-09T08:37:36.681Z",
+    "delivery": {
+      "rang": true,
+      "submitted": true,
+      "at": "2026-10-09T08:37:37.992Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-525-d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7.json"
+  },
+  "review": {
+    "base_revision": "377e2886d1a6879872110a122cc6abcf3975ac3f",
+    "admitted_base": "15a6cddb8f6c088da5cfe4559805100c6427ac70",
+    "effective_base": "377e2886d1a6879872110a122cc6abcf3975ac3f",
+    "patch_sha256": "151dd9a5b28cd573958b22e2e4d57848d9c688690ed68b3482637ac5a306b91e",
+    "task": "TM-525",
+    "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "agent-orchestration/topology/lib/reviewer.mjs",
+        "line": 1696,
+        "claim": "The exported withdrawReview accepts an injected `requireLead`, so an in-process caller can bypass the lead proof. The impact is limited to forcing a fresh request, never an approval.",
+        "evidence": "`export async function withdrawReview({ … requireLead = null, … })`, then `(requireLead || requireLeadCaller)(…)`.",
+        "fix": "In a follow-up, keep test injection off the exported API, as part of TM-427's exported-write-path sweep."
+      },
+      {
+        "severity": "minor",
+        "file": "agent-orchestration/topology/lib/reviewer.mjs",
+        "line": 452,
+        "claim": "The `review-withdrawn` event is recorded before the request file is rewritten, so a failed write leaves an event claiming a withdraw that didn't happen.",
+        "evidence": "`recordTaskEvent(…)` precedes `writeJson(path, next)`.",
+        "fix": "In a follow-up, write the request first, then record the event."
+      },
+      {
+        "severity": "note",
+        "file": "agent-orchestration/tests/unit/topology-reviewer-restart.test.mjs",
+        "line": 242,
+        "claim": "I reviewed revision d1f8e1ba (patch sha256 151dd9a5…), the same patch as requests 974629f8 and f96c3dd1. roles.mjs and both test files are now in the touches, and all required checks pass as host-run results (agent-orchestration unit 1337 and 0, so test 611's earlier failure didn't recur; task-management unit 1703 and 0). Criterion 1: only the proven lead may withdraw, with a reason, and a worker and the reviewer are refused. Criterion 2: after a withdraw the restart proceeds, and a re-request reaches the new incarnation with a fresh nonce. Criterion 3: a withdrawn request is `failed` (TOPOLOGY_REVIEWER_WITHDRAWN), can't take or yield a verdict, and is recorded as a `review-withdrawn` management event. A submitted verdict can't be withdrawn. Test 611 ('a pane's liveness and exit status come from one answer') has now failed intermittently; consider a stabilization ticket."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "request_nonce": "d8b01c94-b122-4158-9929-aa33188eaf37",
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7",
+    "created_at": "2026-10-09T09:16:21.390Z"
+  },
+  "merge": {
+    "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7",
+    "landed": "36ca5437f9ceb82b018463d23050e5556db86de3",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "d1f8e1ba601ae4474a1378fa558b3ccc300d8ff7",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR #255 merged: Independent governed review (faro): APPROVE at d1f8e1ba with all required checks clean (lead-run: AO 1337/0 on the second full run after one untouched-test load flake that passed 10/10 alone; tm 1703/0; plugin-rsync 50/0).",
+      "policy_auto_merge": true,
+      "at": "2026-10-09T09:52:42.198Z"
+    }
+  }
+}

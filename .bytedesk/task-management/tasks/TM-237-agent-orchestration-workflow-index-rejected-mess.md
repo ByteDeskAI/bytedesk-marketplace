@@ -8,7 +8,7 @@ title: "agent-orchestration: workflow-index rejected[].message carries raw error
 epic: "EP-019"
 acceptance: [{"text":"Every rejected[] entry carries a stable code and a short fixed human sentence chosen by that code; no message contains text taken from stdout, a pane capture, a file's contents or a parser error.","done":false},{"text":"Raw diagnostic text, when kept, goes only to a separate bounded detail field (length-capped, control and escape sequences stripped) or a local debug log, and the index schema documents that field as untrusted.","done":false},{"text":"TOPOLOGY_TMUX_FAILED no longer falls back to stdout for its message.","done":false},{"text":"A test forces each rejection path (tmux failure with pane text on stdout, invalid JSON, preservation failure) and asserts the message is the fixed sentence and holds no input text or escape bytes.","done":false}]
 evidence: []
-commits: []
+commits: ["a341204","25bd49b"]
 blockedBy: []
 blocks: []
 actor: "main"
@@ -17,7 +17,7 @@ branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
 labels: ["ready-for-agent","plugin:agent-orchestration"]
 triagedBy: "auto"
-updated: "2026-09-24T23:09:15.929Z"
+updated: "2026-09-25T14:58:58.265Z"
 priority: "high"
 ---
 

@@ -1,0 +1,30 @@
+
+  ..../../../../../../../../tmp/ao-build-check-OKzw8i/host-launcher.cjs  9.5kb
+
+⚡ Done in 21ms
+
+  .../../../../../../../tmp/ao-build-check-OKzw8i/provider-sandbox.cjs  55.1kb
+
+⚡ Done in 29ms
+
+  ..../../../../../../../../tmp/ao-build-check-OKzw8i/nats-client.cjs  546.2kb
+
+⚡ Done in 59ms
+
+  .../../../../../../../../tmp/ao-build-check-OKzw8i/probe-worker.cjs  950.7kb
+
+⚡ Done in 86ms
+
+  ../../../../../../../../../../tmp/ao-build-check-OKzw8i/cli.cjs  2.7mb ⚠️
+
+⚡ Done in 117ms
+
+  ../../../../../../../../../../tmp/ao-build-check-OKzw8i/mcp.cjs  3.3mb ⚠️
+
+⚡ Done in 124ms
+
+  ...../../../../../../tmp/ao-build-check-OKzw8i/claude-agent-acp.mjs  2.2mb ⚠️
+  ..../../../tmp/ao-build-check-OKzw8i/claude-agent-acp.mjs.LEGAL.txt  197b 
+
+⚡ Done in 185ms
+build-check exit 0

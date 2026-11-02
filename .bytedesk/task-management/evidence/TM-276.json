@@ -1,0 +1,698 @@
+{
+  "task": "TM-276",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-10-02T12:41:48.202Z",
+      "owner": "dc778cb2",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-276-agent-orchestration-make-the-nats-transport-choi",
+      "branch": "tm/TM-276-agent-orchestration-make-the-nats-transport-choi",
+      "intent": "Implement ADR-0031: log the selected NATS transport and its source at supervisor start (services status and doctor show it); on an unreachable configured NATS keep using managed local NATS and mail the repository lead once per outage plus a recovery message.",
+      "boundaries": [
+        "only the TM-276 touches plus minimal mailbox call sites",
+        "no version bump; plugin update is the marketplace session post-merge",
+        "PR base fix/ao-local-nats-autostart"
+      ],
+      "dependencies": [
+        "ADR-0031 (present on base)"
+      ],
+      "checks": [
+        "agent-orchestration: unit (env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs)",
+        "agent-orchestration: build:check",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/tests/unit/orch-transport.test.mjs",
+        "agent-orchestration/tests/unit/topology-supervision-transport.test.mjs",
+        "agent-orchestration/topology/lib/doctor.mjs",
+        "agent-orchestration/topology/lib/nats-local.mjs",
+        "agent-orchestration/topology/lib/orch-transport.mjs",
+        "agent-orchestration/topology/lib/services-client.mjs",
+        "agent-orchestration/topology/lib/supervision.mjs"
+      ]
+    },
+    {
+      "event": "worker-started",
+      "at": "2026-10-02T12:50:52.579Z",
+      "backend": "tmux",
+      "run": "tmux:tm-TM-276",
+      "workflow_run_id": "tm-TM-276"
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-02T12:50:53.369Z",
+      "worker": {
+        "name": "agent:TM-276-dc778cb2",
+        "run": "tmux:tm-TM-276",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T12:50:52.542Z",
+        "observed_at": "2026-10-02T12:50:53.362Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-276",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$109",
+          "sessionCreated": 1790945452,
+          "paneId": "%225",
+          "panePid": 464692
+        }
+      },
+      "workflow_run_id": "tm-TM-276"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-02T13:35:17.902Z",
+      "worker": {
+        "name": "agent:TM-276-dc778cb2",
+        "run": "tmux:tm-TM-276",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T12:50:52.542Z",
+        "observed_at": "2026-10-02T12:50:53.362Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-276",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$109",
+          "sessionCreated": 1790945452,
+          "paneId": "%225",
+          "panePid": 464692
+        },
+        "stopped_at": "2026-10-02T13:35:17.902Z"
+      },
+      "proof": "observed-pane-exited-without-finish",
+      "closed": false,
+      "manual_repair": {
+        "by": "Bastion lead dc778cb2",
+        "authorized_by": "marketplace orchestration session acting for the operator (Ryan Helms), 2026-10-02, goal item 3",
+        "reason": "worker exited mid-task with no finish report; stop-worker cannot retire it (TM-247). tmux session and pane gone, pane pid gone. No finish recorded."
+      }
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-02T13:36:05.548Z",
+      "worker": {
+        "name": "agent:TM-276-dc778cb2",
+        "run": "tmux:tm-TM-276",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T12:50:52.542Z",
+        "observed_at": "2026-10-02T13:36:05.543Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-276",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$112",
+          "sessionCreated": 1790948161,
+          "paneId": "%228",
+          "panePid": 1596827
+        }
+      },
+      "workflow_run_id": "tm-TM-276"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-02T14:35:16.497Z",
+      "owner": "dc778cb2",
+      "report": {
+        "revision": "f42aba7a2c2e0a98d1bd540a86f8b3acfb971e56",
+        "artifacts": [
+          "PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/154",
+          "agent-orchestration/topology/lib/nats-outage.mjs",
+          "agent-orchestration/topology/lib/orch-transport.mjs",
+          "agent-orchestration/topology/cli.mjs",
+          "agent-orchestration/topology/lib/supervision.mjs",
+          "agent-orchestration/topology/lib/doctor.mjs",
+          "agent-orchestration/src/diagnostics.mjs",
+          "agent-orchestration/src/services/services.mjs",
+          "agent-orchestration/tests/unit/nats-outage.test.mjs",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs",
+          "agent-orchestration/CHANGELOG.md"
+        ],
+        "checks": [
+          "nats-outage.test.mjs against a real nats-server through the real connect path: pass",
+          "unit suite in chunks with the test:unit preloads: pass except 4 topology-management landing tests and runtime-diagnostics (6/7 plus a hang), identical on clean base 35488ce2",
+          "build:check after npm run build: pass",
+          "live ao-topology supervise with a dead NATS_URL: transport-fallback event logged; doctor shows the Transport line and NATS_CONFIGURED_UNREACHABLE; services status --json shows transport"
+        ],
+        "risks": [
+          "built on 35488ce2: not yet merged with #151/#152, and test:contract not run; a rebuild round on the new base is required before merge (dist will be regenerated), which re-queues review of the delta",
+          "transport.json read-modify-write is unlocked: two racing first fallbacks can mint two outage ids (two mails)",
+          "recovery probe is TCP-only: a server that accepts the socket but refuses auth is re-dialled each reconcile",
+          "criterion 3 (plugin update on every host) belongs to the marketplace session after merge"
+        ],
+        "evidence": ".bytedesk/task-management/evidence/TM-276-test-evidence.txt"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-02T14:44:22.396Z",
+      "worker": {
+        "name": "agent:TM-276-dc778cb2",
+        "run": "tmux:tm-TM-276",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T12:50:52.542Z",
+        "observed_at": "2026-10-02T13:36:05.543Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-276",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$112",
+          "sessionCreated": 1790948161,
+          "paneId": "%228",
+          "panePid": 1596827
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "rebuild-round-reopened",
+      "at": "2026-10-02T14:45:21.936Z",
+      "previous_state": "ready-for-review",
+      "previous_finish_revision": "f42aba7a2c2e0a98d1bd540a86f8b3acfb971e56",
+      "manual_repair": {
+        "by": "Bastion lead dc778cb2",
+        "authorized_by": "marketplace orchestration session acting for the operator (Ryan Helms), 2026-10-02: TM-247 criterion-5 repair for rebuild rounds of TM-287 (#153) and TM-276 (#154)",
+        "reason": "rebuild on the updated base after an approved review; no public verb reopens a ready-for-review admission (TM-247 AC5)"
+      }
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-02T14:46:09.504Z",
+      "worker": {
+        "name": "agent:TM-276-dc778cb2",
+        "run": "tmux:tm-TM-276",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T12:50:52.542Z",
+        "observed_at": "2026-10-02T14:46:09.498Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-276",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$115",
+          "sessionCreated": 1790952359,
+          "paneId": "%231",
+          "panePid": 3448556
+        }
+      },
+      "workflow_run_id": "tm-TM-276"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-02T15:00:33.929Z",
+      "owner": "dc778cb2",
+      "report": {
+        "revision": "d3e88a2f6828056151fc19e15fcd1737249a0d25",
+        "artifacts": [
+          "PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/154 (round 3: merge of origin/fix/ao-local-nats-autostart 4c87f1ed into f42aba7a + rebuilt dist)",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs"
+        ],
+        "checks": [
+          "npm run build:check: pass",
+          "npm run test:unit: 935/943, 4 skipped; the 4 failures are the known topology-management landing tests; no runtime-diagnostics hang",
+          "npm run test:contract: 19/20; topology-tmux.test.mjs subtests pass but the TM-290 provider guard fails the file (5 real claude lead spawns from un-opted-out temp repos); identical on base 4c87f1ed"
+        ],
+        "risks": [
+          "base regression since #151: topology-tmux contract file red; follow-up recorded on TM-290",
+          "only dist conflicted (resolved by npm ci + npm run build); CHANGELOG auto-merged; no code change since f42aba7a beyond the merge",
+          "from round 2: transport.json read-modify-write unlocked (two racing first fallbacks can mail twice); recovery probe TCP-only"
+        ],
+        "evidence": ".bytedesk/task-management/evidence/TM-276-round3-checks.txt (copy in the lead scratchpad; worker attached it to TM-276)"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-02T15:02:34.029Z",
+      "worker": {
+        "name": "agent:TM-276-dc778cb2",
+        "run": "tmux:tm-TM-276",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T12:50:52.542Z",
+        "observed_at": "2026-10-02T14:46:09.498Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-276",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$115",
+          "sessionCreated": 1790952359,
+          "paneId": "%231",
+          "panePid": 3448556
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "rebuild-round-reopened",
+      "at": "2026-10-02T15:10:25.334Z",
+      "previous_state": "ready-for-review",
+      "previous_finish_revision": "d3e88a2f6828056151fc19e15fcd1737249a0d25",
+      "manual_repair": {
+        "by": "Bastion lead dc778cb2",
+        "authorized_by": "marketplace orchestration session acting for the operator (Ryan Helms), 2026-10-02: TM-247 criterion-5 repair for rebuild and changes-requested rounds of TM-287 (#153) and TM-276 (#154); TM-276 round 4 handed back by the marketplace session (over to you) after faro changes_requested on d3e88a2f",
+        "reason": "start the next round after a finish report; no public verb reopens a ready-for-review admission (TM-247 AC5)"
+      }
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-02T15:10:44.509Z",
+      "worker": {
+        "name": "agent:TM-276-dc778cb2",
+        "run": "tmux:tm-TM-276",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T12:50:52.542Z",
+        "observed_at": "2026-10-02T15:10:44.502Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-276",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$116",
+          "sessionCreated": 1790953836,
+          "paneId": "%232",
+          "panePid": 4124703
+        }
+      },
+      "workflow_run_id": "tm-TM-276"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-02T15:22:01.755Z",
+      "owner": "dc778cb2",
+      "report": {
+        "revision": "618d38816ddab2ab76243eda8ee8cfa2b16cfb3d",
+        "artifacts": [
+          "PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/154 (round 4: 8e470479 fixes + merge of origin/fix/ao-local-nats-autostart 570d9e79)",
+          "agent-orchestration/topology/lib/orch-transport.mjs",
+          "agent-orchestration/topology/lib/nats-outage.mjs",
+          "agent-orchestration/tests/unit/nats-outage.test.mjs",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs"
+        ],
+        "checks": [
+          "nats-outage.test.mjs: 5/5 incl. 3 new tests (own-source recovery, caller home, re-dial backoff); each new test fails on the unfixed code (reverted-file controls)",
+          "npm run build + build:check: pass",
+          "npm run test:unit: 938/946, 4 skipped; 4 failures are the known topology-management landing tests",
+          "npm run test:contract: 19/20; only topology-tmux.test.mjs (TM-290 provider guard, known on base)"
+        ],
+        "risks": [
+          "re-dial backoff is in-process: a restarted supervisor restarts the 30 s ladder",
+          "transport.json read-modify-write still unlocked (two racing first fallbacks can mail twice)",
+          "range from admission base includes TM-195/TM-290/TM-287 code already merged via #151-#153 (target_branch is main, so the effective-base adjustment does not apply)"
+        ],
+        "evidence": ".bytedesk/task-management/evidence/TM-276-round4-checks.txt"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-02T15:24:01.822Z",
+      "worker": {
+        "name": "agent:TM-276-dc778cb2",
+        "run": "tmux:tm-TM-276",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T12:50:52.542Z",
+        "observed_at": "2026-10-02T15:10:44.502Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-276",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$116",
+          "sessionCreated": 1790953836,
+          "paneId": "%232",
+          "panePid": 4124703
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "rebuild-round-reopened",
+      "at": "2026-10-02T15:25:36.875Z",
+      "previous_state": "ready-for-review",
+      "previous_finish_revision": "618d38816ddab2ab76243eda8ee8cfa2b16cfb3d",
+      "manual_repair": {
+        "by": "Bastion lead dc778cb2",
+        "authorized_by": "marketplace orchestration session acting for the operator (Ryan Helms), 2026-10-02: TM-247 criterion-5 repair for rebuild and changes-requested rounds of TM-287 (#153) and TM-276 (#154); TM-276 round 4 handed back by the marketplace session (over to you) after faro changes_requested on d3e88a2f",
+        "reason": "start the next round after a finish report; no public verb reopens a ready-for-review admission (TM-247 AC5)"
+      }
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-02T15:26:25.865Z",
+      "worker": {
+        "name": "agent:TM-276-dc778cb2",
+        "run": "tmux:tm-TM-276",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T12:50:52.542Z",
+        "observed_at": "2026-10-02T15:26:25.858Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-276",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$117",
+          "sessionCreated": 1790954779,
+          "paneId": "%233",
+          "panePid": 395079
+        }
+      },
+      "workflow_run_id": "tm-TM-276"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-02T15:37:41.695Z",
+      "owner": "dc778cb2",
+      "report": {
+        "revision": "ae921f609634807ae908fd0fb136d348b8f33415",
+        "artifacts": [
+          "PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/154 (round 5: ae921f60 retires an outage nothing falls back from any more)",
+          "agent-orchestration/topology/lib/orch-transport.mjs",
+          "agent-orchestration/topology/lib/nats-outage.mjs",
+          "agent-orchestration/topology/lib/doctor.mjs",
+          "agent-orchestration/tests/unit/nats-outage.test.mjs",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs"
+        ],
+        "checks": [
+          "nats-outage.test.mjs: 6/6, 0 skipped, nats-server present (/snap/bin/nats-server); the new retirement test fails with topology/lib reverted (5/6); includes a doctor positive control before retirement",
+          "npm run build + build:check: pass",
+          "npm run test:unit: 939/947, 4 skipped; 4 failures are the known topology-management landing tests",
+          "npm run test:contract: 19/20; only topology-tmux.test.mjs (known on base)"
+        ],
+        "risks": [
+          "retire bound (default 1 h, AO_NATS_OUTAGE_RETIRE_MS) depends on a process still on the fallback refreshing last_fallback_at: supervisors do it in natsOutageTick; a non-supervisor long-lived process on the fallback does not, so its outage can retire while it is still falling back",
+          "transport.json read-modify-write still unlocked",
+          "range from admission base includes TM-195/TM-290/TM-287 code already merged via #151-#153"
+        ],
+        "evidence": ".bytedesk/task-management/evidence/TM-276-round5-checks.txt"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-02T15:39:41.886Z",
+      "worker": {
+        "name": "agent:TM-276-dc778cb2",
+        "run": "tmux:tm-TM-276",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T12:50:52.542Z",
+        "observed_at": "2026-10-02T15:26:25.858Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-276",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$117",
+          "sessionCreated": 1790954779,
+          "paneId": "%233",
+          "panePid": 395079
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-10-02T23:43:07.509Z",
+      "revision": "ae921f609634807ae908fd0fb136d348b8f33415",
+      "landed": "9ce66223f748e6d92612c6d4334e69167c8fe3f3",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "ae921f609634807ae908fd0fb136d348b8f33415",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR #154 merged after faro approved ae921f60; CI green; main via #164 (9ce66223)",
+        "policy_auto_merge": true,
+        "at": "2026-10-02T23:43:07.176Z"
+      }
+    },
+    {
+      "event": "cleanup",
+      "at": "2026-10-02T23:43:50.767Z",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-276-agent-orchestration-make-the-nats-transport-choi",
+      "branch": "tm/TM-276-agent-orchestration-make-the-nats-transport-choi",
+      "status": "complete"
+    }
+  ],
+  "updated_at": "2026-10-02T23:43:50.767Z",
+  "base_revision": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+  "owner": "dc778cb2",
+  "workflow_run_id": "tm-TM-276",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-276-agent-orchestration-make-the-nats-transport-choi",
+  "branch": "tm/TM-276-agent-orchestration-make-the-nats-transport-choi",
+  "started": true,
+  "state": "cleaned",
+  "previous_workers": [
+    {
+      "name": "agent:TM-276-dc778cb2",
+      "run": "tmux:tm-TM-276",
+      "backend": "tmux",
+      "owner": "dc778cb2",
+      "registered_at": "2026-10-02T12:50:52.542Z",
+      "observed_at": "2026-10-02T12:50:53.362Z",
+      "kind": "tmux",
+      "session_name": "tm-TM-276",
+      "binding": {
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 595980,
+        "sessionId": "$109",
+        "sessionCreated": 1790945452,
+        "paneId": "%225",
+        "panePid": 464692
+      },
+      "stopped_at": "2026-10-02T13:35:17.902Z"
+    },
+    {
+      "name": "agent:TM-276-dc778cb2",
+      "run": "tmux:tm-TM-276",
+      "backend": "tmux",
+      "owner": "dc778cb2",
+      "registered_at": "2026-10-02T12:50:52.542Z",
+      "observed_at": "2026-10-02T13:36:05.543Z",
+      "kind": "tmux",
+      "session_name": "tm-TM-276",
+      "binding": {
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 595980,
+        "sessionId": "$112",
+        "sessionCreated": 1790948161,
+        "paneId": "%228",
+        "panePid": 1596827
+      },
+      "stopped_at": "2026-10-02T14:44:22.396Z"
+    },
+    {
+      "name": "agent:TM-276-dc778cb2",
+      "run": "tmux:tm-TM-276",
+      "backend": "tmux",
+      "owner": "dc778cb2",
+      "registered_at": "2026-10-02T12:50:52.542Z",
+      "observed_at": "2026-10-02T14:46:09.498Z",
+      "kind": "tmux",
+      "session_name": "tm-TM-276",
+      "binding": {
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 595980,
+        "sessionId": "$115",
+        "sessionCreated": 1790952359,
+        "paneId": "%231",
+        "panePid": 3448556
+      },
+      "stopped_at": "2026-10-02T15:02:34.029Z"
+    },
+    {
+      "name": "agent:TM-276-dc778cb2",
+      "run": "tmux:tm-TM-276",
+      "backend": "tmux",
+      "owner": "dc778cb2",
+      "registered_at": "2026-10-02T12:50:52.542Z",
+      "observed_at": "2026-10-02T15:10:44.502Z",
+      "kind": "tmux",
+      "session_name": "tm-TM-276",
+      "binding": {
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 595980,
+        "sessionId": "$116",
+        "sessionCreated": 1790953836,
+        "paneId": "%232",
+        "panePid": 4124703
+      },
+      "stopped_at": "2026-10-02T15:24:01.822Z"
+    }
+  ],
+  "finish": {
+    "revision": "ae921f609634807ae908fd0fb136d348b8f33415",
+    "artifacts": [
+      "PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/154 (round 5: ae921f60 retires an outage nothing falls back from any more)",
+      "agent-orchestration/topology/lib/orch-transport.mjs",
+      "agent-orchestration/topology/lib/nats-outage.mjs",
+      "agent-orchestration/topology/lib/doctor.mjs",
+      "agent-orchestration/tests/unit/nats-outage.test.mjs",
+      "agent-orchestration/CHANGELOG.md",
+      "agent-orchestration/dist/cli.cjs",
+      "agent-orchestration/dist/mcp.cjs"
+    ],
+    "checks": [
+      "nats-outage.test.mjs: 6/6, 0 skipped, nats-server present (/snap/bin/nats-server); the new retirement test fails with topology/lib reverted (5/6); includes a doctor positive control before retirement",
+      "npm run build + build:check: pass",
+      "npm run test:unit: 939/947, 4 skipped; 4 failures are the known topology-management landing tests",
+      "npm run test:contract: 19/20; only topology-tmux.test.mjs (known on base)"
+    ],
+    "risks": [
+      "retire bound (default 1 h, AO_NATS_OUTAGE_RETIRE_MS) depends on a process still on the fallback refreshing last_fallback_at: supervisors do it in natsOutageTick; a non-supervisor long-lived process on the fallback does not, so its outage can retire while it is still falling back",
+      "transport.json read-modify-write still unlocked",
+      "range from admission base includes TM-195/TM-290/TM-287 code already merged via #151-#153"
+    ],
+    "evidence": ".bytedesk/task-management/evidence/TM-276-round5-checks.txt"
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+    "admitted_base": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+    "effective_base": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+    "range_note": "The range 35488ce2a3b109ddb7f4e3b170b348e60ddc5986..revision starts at the task admission commit.",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-276-ae921f609634807ae908fd0fb136d348b8f33415.patch",
+    "patch_sha256": "4281cec08ebadb5b63ce60673153720038b250021c1819556b69ce656b36f3f3",
+    "nonce": "5c041d11-272b-4096-b016-eb577f5e4c5f",
+    "task": "TM-276",
+    "revision": "ae921f609634807ae908fd0fb136d348b8f33415",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 595980,
+      "sessionId": "$106",
+      "sessionCreated": 1790942090,
+      "paneId": "%222",
+      "panePid": 3479571
+    },
+    "author_agent_ids": [
+      "dc778cb2"
+    ],
+    "created_at": "2026-10-02T15:37:44.091Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-10-02T15:37:44.619Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-276-ae921f609634807ae908fd0fb136d348b8f33415.json"
+  },
+  "worker": {
+    "name": "agent:TM-276-dc778cb2",
+    "run": "tmux:tm-TM-276",
+    "backend": "tmux",
+    "owner": "dc778cb2",
+    "registered_at": "2026-10-02T12:50:52.542Z",
+    "observed_at": "2026-10-02T15:26:25.858Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-276",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 595980,
+      "sessionId": "$117",
+      "sessionCreated": 1790954779,
+      "paneId": "%233",
+      "panePid": 395079
+    },
+    "stopped_at": "2026-10-02T15:39:41.886Z"
+  },
+  "review": {
+    "base_revision": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+    "admitted_base": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+    "effective_base": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+    "patch_sha256": "4281cec08ebadb5b63ce60673153720038b250021c1819556b69ce656b36f3f3",
+    "task": "TM-276",
+    "revision": "ae921f609634807ae908fd0fb136d348b8f33415",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "agent-orchestration/topology/lib/orch-transport.mjs",
+        "line": 410,
+        "claim": "Only a repository supervisor refreshes last_fallback_at, and only for connections it holds itself. A different long-lived process that keeps a cached fallback connection (for example the MCP server whose env still has the dead NATS_URL) is not counted, so the outage can be retired while that process is still isolated. Its next reconnect then mints a new outage and a second outage mail.",
+        "evidence": "holdsFallbackFrom inspects only this process's liveTransports, and natsOutageTick (the only caller) runs in supervise. recordTransportSelection refreshes last_fallback_at only on a new open, and resolveTransport returns the cached transport without reopening, so a long-lived non-supervisor holder never refreshes. Once that is older than OUTAGE_RETIRE_MS, retireStaleOutage closes it and doctor clears.",
+        "fix": "Have each long-lived process that holds a fallback refresh last_fallback_at periodically (for example from the presence or transport heartbeat), or document that retirement reflects only supervisor and new-open activity."
+      },
+      {
+        "severity": "minor",
+        "file": "agent-orchestration/CHANGELOG.md",
+        "line": 12,
+        "claim": "This revision still carries TM-287, TM-195/TM-220 and TM-290 as well as TM-276, so landing it lands all four under TM-276's review record.",
+        "evidence": "The range changes presence.mjs, reviewer.mjs, prompts/reviewer.md, provider-guard.mjs, temp-repo.mjs and many test files, and the CHANGELOG adds entries for TM-287, TM-195/TM-220 and TM-290.",
+        "fix": "Land those tasks through their own gates first, then merge main into this branch so the range drops their code. Or have the lead confirm one combined landing."
+      },
+      {
+        "severity": "note",
+        "file": "agent-orchestration/tests/unit/nats-outage.test.mjs",
+        "line": 2,
+        "claim": "The round-3 major is fixed: outages are retired after OUTAGE_RETIRE_MS with no fallback, a held fallback keeps them open, and doctor clears with one retired mail, covered by a new test. The earlier fixes (recovery tied to the configured source and url, home threading, redial backoff) are intact. The request includes no test-run output, and the nats tests skip without a nats-server binary."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 595980,
+      "sessionId": "$106",
+      "sessionCreated": 1790942090,
+      "paneId": "%222",
+      "panePid": 3479571
+    },
+    "request_nonce": "5c041d11-272b-4096-b016-eb577f5e4c5f",
+    "author_agent_ids": [
+      "dc778cb2"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "ae921f609634807ae908fd0fb136d348b8f33415",
+    "created_at": "2026-10-02T15:38:28.098Z"
+  },
+  "merge": {
+    "revision": "ae921f609634807ae908fd0fb136d348b8f33415",
+    "landed": "9ce66223f748e6d92612c6d4334e69167c8fe3f3",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "ae921f609634807ae908fd0fb136d348b8f33415",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR #154 merged after faro approved ae921f60; CI green; main via #164 (9ce66223)",
+      "policy_auto_merge": true,
+      "at": "2026-10-02T23:43:07.176Z"
+    }
+  }
+}

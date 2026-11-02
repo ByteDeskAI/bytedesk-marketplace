@@ -1,0 +1,130 @@
+TAP version 13
+# Subtest: parseArgs defaults to every host
+ok 1 - parseArgs defaults to every host
+  ---
+  duration_ms: 1.92826
+  type: 'test'
+  ...
+# Subtest: pluginRootFromScript walks out of the skill scripts directory
+ok 2 - pluginRootFromScript walks out of the skill scripts directory
+  ---
+  duration_ms: 0.410039
+  type: 'test'
+  ...
+# Subtest: kimi host wiring merges mcp.json and links skills without dropping other servers
+ok 3 - kimi host wiring merges mcp.json and links skills without dropping other servers
+  ---
+  duration_ms: 14.284707
+  type: 'test'
+  ...
+# Subtest: grok host plan uses trusted plugin install and does not run on dry-run
+ok 4 - grok host plan uses trusted plugin install and does not run on dry-run
+  ---
+  duration_ms: 0.419925
+  type: 'test'
+  ...
+# Subtest: TM-284: hostCopies finds the codex, grok and kimi copies and nothing else
+ok 5 - TM-284: hostCopies finds the codex, grok and kimi copies and nothing else
+  ---
+  duration_ms: 12.321817
+  type: 'test'
+  ...
+# Subtest: TM-485: a directory that is not this plugin is never a host copy, so never replaced or deleted
+ok 6 - TM-485: a directory that is not this plugin is never a host copy, so never replaced or deleted
+  ---
+  duration_ms: 36.019642
+  type: 'test'
+  ...
+# Subtest: TM-284: an older copy is refreshed to the pointer's build; an equal or newer one is left alone
+ok 7 - TM-284: an older copy is refreshed to the pointer's build; an equal or newer one is left alone
+  ---
+  duration_ms: 30.232093
+  type: 'test'
+  ...
+# Subtest: TM-299: a same-version copy of a NEWER build is never downgraded; an unfingerprinted one is left alone
+ok 8 - TM-299: a same-version copy of a NEWER build is never downgraded; an unfingerprinted one is left alone
+  ---
+  duration_ms: 27.78406
+  type: 'test'
+  ...
+# Subtest: TM-299: same-version builds are ordered by the ordinal recorded at sync; mtime only for a copy without one
+ok 9 - TM-299: same-version builds are ordered by the ordinal recorded at sync; mtime only for a copy without one
+  ---
+  duration_ms: 31.075906
+  type: 'test'
+  ...
+# Subtest: TM-299: outside git the source's ordinal is the newest mtime under dist/
+ok 10 - TM-299: outside git the source's ordinal is the newest mtime under dist/
+  ---
+  duration_ms: 3.206089
+  type: 'test'
+  ...
+# Subtest: TM-284: a copy whose node_modules does not satisfy the new package.json is reported and left whole
+ok 11 - TM-284: a copy whose node_modules does not satisfy the new package.json is reported and left whole
+  ---
+  duration_ms: 11.660337
+  type: 'test'
+  ...
+# Subtest: TM-284: a copy that fails half-way is rolled back, never left half-updated
+ok 12 - TM-284: a copy that fails half-way is rolled back, never left half-updated
+  ---
+  duration_ms: 11.739146
+  type: 'test'
+  ...
+# Subtest: TM-284: never copies from a source tree with uncommitted changes, and never writes into a git checkout
+ok 13 - TM-284: never copies from a source tree with uncommitted changes, and never writes into a git checkout
+  ---
+  duration_ms: 58.180634
+  type: 'test'
+  ...
+# Subtest: TM-284: install-host refreshes older copies from its plugin root (dry run reports only)
+ok 14 - TM-284: install-host refreshes older copies from its plugin root (dry run reports only)
+  ---
+  duration_ms: 24.453588
+  type: 'test'
+  ...
+# Subtest: TM-284: satisfies covers the range forms package.json uses
+ok 15 - TM-284: satisfies covers the range forms package.json uses
+  ---
+  duration_ms: 0.448415
+  type: 'test'
+  ...
+# Subtest: TM-285: stale MCP servers are listed by host and pid with restart advice, and nothing is signalled
+ok 16 - TM-285: stale MCP servers are listed by host and pid with restart advice, and nothing is signalled
+  ---
+  duration_ms: 9.327096
+  type: 'test'
+  ...
+# Subtest: TM-285: leaked scopes whose state root is gone are stopped; one whose root exists is never touched
+ok 17 - TM-285: leaked scopes whose state root is gone are stopped; one whose root exists is never touched
+  ---
+  duration_ms: 3.388772
+  type: 'test'
+  ...
+# Subtest: TM-285: a hand-run session host on the managed state root is handed over; anything else is left alone
+ok 18 - TM-285: a hand-run session host on the managed state root is handed over; anything else is left alone
+  ---
+  duration_ms: 0.737934
+  type: 'test'
+  ...
+# Subtest: TM-285: doctor flags a TMUX_TMPDIR whose socket path exceeds the unix-socket limit
+ok 19 - TM-285: doctor flags a TMUX_TMPDIR whose socket path exceeds the unix-socket limit
+  ---
+  duration_ms: 2.619718
+  type: 'test'
+  ...
+# Subtest: TM-284/285: one ensure's self-heal reports every part, and a failing part never fails the rest
+ok 20 - TM-284/285: one ensure's self-heal reports every part, and a failing part never fails the rest
+  ---
+  duration_ms: 1.105426
+  type: 'test'
+  ...
+1..20
+# tests 20
+# suites 0
+# pass 20
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 443.806088

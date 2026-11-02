@@ -1,0 +1,1 @@
+PR #190 merged (17e53653). CI green: unit-build-contracts, Strict installed-cache contract, check, test-build-install. guard-project-install.test.sh 11/11, check-no-project-plugin-installs.test.sh 14/14, unit 33/33; each red on revert. Lead added tm override exclusion + test (proved red without it).

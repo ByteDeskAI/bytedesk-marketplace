@@ -13,9 +13,10 @@ blockedBy: []
 blocks: []
 actor: "@pool"
 session: "pool-tm-204"
-updated: "2026-09-14T01:03:26.039Z"
+updated: "2026-10-04T04:53:05.333Z"
 labels: ["ready-for-agent"]
 triagedBy: "auto"
+comments: [{"author":"main","ts":"2026-10-04T04:53:05.327Z","text":"Imported history from retired marketplace copy: worker:tmux recorded at 2026-09-22T22:55:26.473Z: worker exited without closing. Historical event only; current task status is unchanged."}]
 ---
 
 Found while finishing TM-204 (2026-09-13). TM-204 fixed the tests that read the developer's live STORE. A second, distinct class remains: tests that read the runner's live SESSION.

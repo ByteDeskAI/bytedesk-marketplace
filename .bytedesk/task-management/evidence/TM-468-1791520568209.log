@@ -1,0 +1,1 @@
+Merged in PR #240 (merge 6f3628ea, all CI checks green). Independent review rv-240 approved; follow-ups TM-501..504 filed. Post-review fix: lead contract fixtures install the fake provider under XDG_CONFIG_HOME and providerDirs honours XDG_CONFIG_HOME (0aefddf2).

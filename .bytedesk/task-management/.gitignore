@@ -50,3 +50,7 @@ pool.log
 
 # enhance-mine's last-seen evidence per signature (TM-380). One machine's transcripts.
 enhance-mine.json
+
+# Added by `tm doctor --fix` — rules this store predates.
+pool.wake
+review-sweep.json

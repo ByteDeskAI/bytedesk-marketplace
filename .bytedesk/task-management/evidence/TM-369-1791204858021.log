@@ -1,0 +1,1 @@
+PR #190 merged (17e53653). PreToolUse allow hook scripts/autonomy-allow.mjs; live check on Claude Code 2.1.289 default and auto mode; gated verbs listed in README "Lead and worker autonomy". tm override never auto-approved.

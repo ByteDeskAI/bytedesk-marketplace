@@ -1,0 +1,3 @@
+25 passed, 0 failed
+FAIL task-management/tests/test-hooks.sh
+tm-suites-done

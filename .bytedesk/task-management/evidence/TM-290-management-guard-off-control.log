@@ -1,0 +1,530 @@
+TAP version 13
+# Subtest: new admission requires reviewer, task scope, ownership and complete protocol before provisioning
+ok 1 - new admission requires reviewer, task scope, ownership and complete protocol before provisioning
+  ---
+  duration_ms: 120.280118
+  type: 'test'
+  ...
+# Subtest: adopted active worker is preserved for migration review
+ok 2 - adopted active worker is preserved for migration review
+  ---
+  duration_ms: 25.264789
+  type: 'test'
+  ...
+# Subtest: finish survives reviewer outage but merge fails closed and task is never automatically done
+ok 3 - finish survives reviewer outage but merge fails closed and task is never automatically done
+  ---
+  duration_ms: 170.895205
+  type: 'test'
+  ...
+# Subtest: configured checks, verified local merge and tm cleanup close only the owned task in order
+ok 4 - configured checks, verified local merge and tm cleanup close only the owned task in order
+  ---
+  duration_ms: 350.998303
+  type: 'test'
+  ...
+# Subtest: dirty, changed and unowned task cleanup preserves work with recovery reason
+ok 5 - dirty, changed and unowned task cleanup preserves work with recovery reason
+  ---
+  duration_ms: 297.012357
+  type: 'test'
+  ...
+# Subtest: actual tm CLI provisions once, records worker claim, and enforces start before admission
+ok 6 - actual tm CLI provisions once, records worker claim, and enforces start before admission
+  ---
+  duration_ms: 1239.639428
+  type: 'test'
+  ...
+# Subtest: TM-240: a standing reviewer refuses unadmitted tm dispatch; admit, dispatch, finish yields a reviewable revision
+ok 7 - TM-240: a standing reviewer refuses unadmitted tm dispatch; admit, dispatch, finish yields a reviewable revision
+  ---
+  duration_ms: 1626.748196
+  type: 'test'
+  ...
+# Subtest: TM-240: the reviewer accepts an admitted revision from an agent-orchestration copy with task-management absent
+ok 8 - TM-240: the reviewer accepts an admitted revision from an agent-orchestration copy with task-management absent
+  ---
+  duration_ms: 193.244354
+  type: 'test'
+  ...
+# Subtest: failed required checks and out-of-scope files prevent integration
+ok 9 - failed required checks and out-of-scope files prevent integration
+  ---
+  duration_ms: 268.889003
+  type: 'test'
+  ...
+# Subtest: production worker proof uses actual tm registry and observed process exit before merge and cleanup
+ok 10 - production worker proof uses actual tm registry and observed process exit before merge and cleanup
+  ---
+  duration_ms: 4137.526034
+  type: 'test'
+  ...
+# Subtest: tmux default worker proof binds the real pane incarnation and waits for its exit
+ok 11 - tmux default worker proof binds the real pane incarnation and waits for its exit
+  ---
+  duration_ms: 228.315303
+  type: 'test'
+  ...
+# Subtest: native worker proof uses the durable producer binding and every member instead of an implicit same-named session
+ok 12 - native worker proof uses the durable producer binding and every member instead of an implicit same-named session
+  ---
+  duration_ms: 450.866128
+  type: 'test'
+  ...
+# Subtest: native parent completion waits for every child and holds pending, unknown or missing runtime evidence
+ok 13 - native parent completion waits for every child and holds pending, unknown or missing runtime evidence
+  ---
+  duration_ms: 767.066198
+  type: 'test'
+  ...
+# Subtest: a native fallback requires a new verified finish and incomplete or foreign task handles remain held
+ok 14 - a native fallback requires a new verified finish and incomplete or foreign task handles remain held
+  ---
+  duration_ms: 531.914558
+  type: 'test'
+  ...
+# Subtest: integration tolerates dirty tool store paths but refuses any other dirty path
+ok 15 - integration tolerates dirty tool store paths but refuses any other dirty path
+  ---
+  duration_ms: 300.84301
+  type: 'test'
+  ...
+# Subtest: integration refuses a landing that would change tool store paths
+ok 16 - integration refuses a landing that would change tool store paths
+  ---
+  duration_ms: 138.324898
+  type: 'test'
+  ...
+# Subtest: record-landing records an operator landing that governed completion accepts, without merging
+not ok 17 - record-landing records an operator landing that governed completion accepts, without merging
+  ---
+  duration_ms: 162.257334
+  type: 'test'
+  location: '/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-290-agent-orchestration-tests-a-temp-git-repo-is-enr/agent-orchestration/tests/unit/topology-management.test.mjs:421:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    TM-1: workers finish at ready-for-review; only reviewed and authorized integration can close this task
+    
+    false !== true
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-290-agent-orchestration-tests-a-temp-git-repo-is-enr/agent-orchestration/tests/unit/topology-management.test.mjs:443:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: record-landing refuses without review, ancestry, target branch, actor or reason
+ok 18 - record-landing refuses without review, ancestry, target branch, actor or reason
+  ---
+  duration_ms: 280.734811
+  type: 'test'
+  ...
+# Subtest: record-landing accepts a standing delegation instead of --authorized, and records who granted it
+ok 19 - record-landing accepts a standing delegation instead of --authorized, and records who granted it
+  ---
+  duration_ms: 395.534034
+  type: 'test'
+  ...
+# Subtest: integrate accepts a standing delegation instead of --authorized, and records who granted it
+ok 20 - integrate accepts a standing delegation instead of --authorized, and records who granted it
+  ---
+  duration_ms: 326.388285
+  type: 'test'
+  ...
+# Subtest: a worker naming the lead in AO_AGENT_ID cannot use the lead's grant on integrate or record-landing
+ok 21 - a worker naming the lead in AO_AGENT_ID cannot use the lead's grant on integrate or record-landing
+  ---
+  duration_ms: 419.009673
+  type: 'test'
+  ...
+# Subtest: with permission rules installed, integrate and record-landing still need a live delegation proven for the caller
+ok 22 - with permission rules installed, integrate and record-landing still need a live delegation proven for the caller
+  ---
+  duration_ms: 604.291129
+  type: 'test'
+  ...
+# Subtest: a corrupt delegations file makes eligibility false with a named reason instead of throwing
+ok 23 - a corrupt delegations file makes eligibility false with a named reason instead of throwing
+  ---
+  duration_ms: 188.712829
+  type: 'test'
+  ...
+# Subtest: governed completion accepts a delegated integration record unchanged
+not ok 24 - governed completion accepts a delegated integration record unchanged
+  ---
+  duration_ms: 261.927658
+  type: 'test'
+  location: '/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-290-agent-orchestration-tests-a-temp-git-repo-is-enr/agent-orchestration/tests/unit/topology-management.test.mjs:625:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    TM-1: workers finish at ready-for-review; only reviewed and authorized integration can close this task
+    
+    false !== true
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-290-agent-orchestration-tests-a-temp-git-repo-is-enr/agent-orchestration/tests/unit/topology-management.test.mjs:639:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: integration refuses a task that cannot fast-forward the target branch
+ok 25 - integration refuses a task that cannot fast-forward the target branch
+  ---
+  duration_ms: 175.916873
+  type: 'test'
+  ...
+# Subtest: this repository's committed management policy raises no policy reasons
+ok 26 - this repository's committed management policy raises no policy reasons
+  ---
+  duration_ms: 200.795876
+  type: 'test'
+  ...
+# Subtest: start-worker dispatches through tm, records the pane binding and clears the dispatch-owner reason
+ok 27 - start-worker dispatches through tm, records the pane binding and clears the dispatch-owner reason
+  ---
+  duration_ms: 369.172215
+  type: 'test'
+  ...
+# Subtest: stop-worker refuses unowned, uncollected and active workers and closes an owned idle pane
+ok 28 - stop-worker refuses unowned, uncollected and active workers and closes an owned idle pane
+  ---
+  duration_ms: 556.435653
+  type: 'test'
+  ...
+# Subtest: bind adopts a live worker only after verifying it and fails closed on unknown or reused identities
+ok 29 - bind adopts a live worker only after verifying it and fails closed on unknown or reused identities
+  ---
+  duration_ms: 356.031671
+  type: 'test'
+  ...
+# Subtest: a stopped worker is history: start-worker starts the next round and the old binding is kept
+ok 30 - a stopped worker is history: start-worker starts the next round and the old binding is kept
+  ---
+  duration_ms: 353.182352
+  type: 'test'
+  ...
+# Subtest: bind never adopts an operator shell: pre-admission sessions and login shells are refused
+ok 31 - bind never adopts an operator shell: pre-admission sessions and login shells are refused
+  ---
+  duration_ms: 1285.274139
+  type: 'test'
+  ...
+# Subtest: TM-257 (g) integration scope uses the review effective base, so a merged sibling is not out of scope
+ok 32 - TM-257 (g) integration scope uses the review effective base, so a merged sibling is not out of scope
+  ---
+  duration_ms: 197.311207
+  type: 'test'
+  ...
+# Subtest: TM-257 (g) moving local main and origin/main does not hide an out-of-scope file from the scope check
+ok 33 - TM-257 (g) moving local main and origin/main does not hide an out-of-scope file from the scope check
+  ---
+  duration_ms: 209.869544
+  type: 'test'
+  ...
+# Subtest: TM-248 in-plan: the lead lands a task in the approved plan, and the grant supplies actor, delegated_by, delegation_id and plan
+ok 34 - TM-248 in-plan: the lead lands a task in the approved plan, and the grant supplies actor, delegated_by, delegation_id and plan
+  ---
+  duration_ms: 442.303438
+  type: 'test'
+  ...
+# Subtest: TM-248 out-of-plan: a grant for another epic or task list refuses the task with TOPOLOGY_DELEGATION_PLAN
+ok 35 - TM-248 out-of-plan: a grant for another epic or task list refuses the task with TOPOLOGY_DELEGATION_PLAN
+  ---
+  duration_ms: 216.934605
+  type: 'test'
+  ...
+# Subtest: TM-248 expired grant: a plan grant past its expiry authorizes nothing
+ok 36 - TM-248 expired grant: a plan grant past its expiry authorizes nothing
+  ---
+  duration_ms: 190.494751
+  type: 'test'
+  ...
+# Subtest: TM-248 wrong repo: a plan grant for another repository authorizes nothing here
+ok 37 - TM-248 wrong repo: a plan grant for another repository authorizes nothing here
+  ---
+  duration_ms: 255.286378
+  type: 'test'
+  ...
+# Subtest: TM-248 worker session: a worker cannot use the lead's plan grant, nor self-assert --authorized
+ok 38 - TM-248 worker session: a worker cannot use the lead's plan grant, nor self-assert --authorized
+  ---
+  duration_ms: 161.749049
+  type: 'test'
+  ...
+# Subtest: TM-248 managed session passing --authorized is refused by the verb itself; an operator shell still may
+ok 39 - TM-248 managed session passing --authorized is refused by the verb itself; an operator shell still may
+  ---
+  duration_ms: 299.317207
+  type: 'test'
+  ...
+# Subtest: TM-248 auto_merge: a managed session with no grant is refused on integrate and record-landing
+ok 40 - TM-248 auto_merge: a managed session with no grant is refused on integrate and record-landing
+  ---
+  duration_ms: 217.678308
+  type: 'test'
+  ...
+# Subtest: TM-248 + TM-243 auto_merge: a bare verb from the lead's census-bound pane still needs a covering grant
+ok 41 - TM-248 + TM-243 auto_merge: a bare verb from the lead's census-bound pane still needs a covering grant
+  ---
+  duration_ms: 295.90956
+  type: 'test'
+  ...
+# Subtest: TM-248 auto_merge: the same managed session with a covering grant is allowed, and the grant names the actor
+ok 42 - TM-248 auto_merge: the same managed session with a covering grant is allowed, and the grant names the actor
+  ---
+  duration_ms: 550.643701
+  type: 'test'
+  ...
+# Subtest: TM-248 auto_merge: an operator shell still integrates without a grant (documented operator path)
+ok 43 - TM-248 auto_merge: an operator shell still integrates without a grant (documented operator path)
+  ---
+  duration_ms: 340.967505
+  type: 'test'
+  ...
+# Subtest: TM-248 frozen plan (a): a task moved into the epic after the grant is refused
+ok 44 - TM-248 frozen plan (a): a task moved into the epic after the grant is refused
+  ---
+  duration_ms: 196.6599
+  type: 'test'
+  ...
+# Subtest: TM-248 frozen plan (b): a task created in the epic after the grant is refused
+ok 45 - TM-248 frozen plan (b): a task created in the epic after the grant is refused
+  ---
+  duration_ms: 165.900387
+  type: 'test'
+  ...
+# Subtest: TM-248 frozen plan (c): a listed task moved out of the epic is still covered
+ok 46 - TM-248 frozen plan (c): a listed task moved out of the epic is still covered
+  ---
+  duration_ms: 282.105837
+  type: 'test'
+  ...
+# Subtest: TM-248 frozen plan (d): a tampered plan.tasks or plan.sha256 is refused as TOPOLOGY_DELEGATION_INTEGRITY
+ok 47 - TM-248 frozen plan (d): a tampered plan.tasks or plan.sha256 is refused as TOPOLOGY_DELEGATION_INTEGRITY
+  ---
+  duration_ms: 234.36984
+  type: 'test'
+  ...
+# Subtest: TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+not ok 48 - TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+  ---
+  duration_ms: 286.161431
+  type: 'test'
+  location: '/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-290-agent-orchestration-tests-a-temp-git-repo-is-enr/agent-orchestration/tests/unit/topology-management.test.mjs:1135:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    TM-1: workers finish at ready-for-review; only reviewed and authorized integration can close this task
+    
+    false !== true
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-290-agent-orchestration-tests-a-temp-git-repo-is-enr/agent-orchestration/tests/unit/topology-management.test.mjs:1169:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: TM-249 close-retry runs the same caller and plan gate: a worker pane and a lead without a grant are refused by name and the task stays open
+ok 49 - TM-249 close-retry runs the same caller and plan gate: a worker pane and a lead without a grant are refused by name and the task stays open
+  ---
+  duration_ms: 302.992244
+  type: 'test'
+  ...
+# Subtest: TM-249 authorization: an operator-shell auto_merge integrate without --authorized or a grant records authorized: false, exactly as the fast-forward path
+ok 50 - TM-249 authorization: an operator-shell auto_merge integrate without --authorized or a grant records authorized: false, exactly as the fast-forward path
+  ---
+  duration_ms: 463.398963
+  type: 'test'
+  ...
+# Subtest: TM-249 refusal plan: a grant whose plan does not cover the task
+ok 51 - TM-249 refusal plan: a grant whose plan does not cover the task
+  ---
+  duration_ms: 222.892465
+  type: 'test'
+  ...
+# Subtest: TM-249 refusal plan: a managed lead session without any grant
+ok 52 - TM-249 refusal plan: a managed lead session without any grant
+  ---
+  duration_ms: 201.185472
+  type: 'test'
+  ...
+# Subtest: TM-249 refusal caller: a worker session cannot use the lead's grant
+ok 53 - TM-249 refusal caller: a worker session cannot use the lead's grant
+  ---
+  duration_ms: 266.079021
+  type: 'test'
+  ...
+# Subtest: TM-249 refusal base: the PR does not target the integration branch
+ok 54 - TM-249 refusal base: the PR does not target the integration branch
+  ---
+  duration_ms: 187.699632
+  type: 'test'
+  ...
+# Subtest: TM-249 refusal head: the PR head is not the reviewed and approved revision
+ok 55 - TM-249 refusal head: the PR head is not the reviewed and approved revision
+  ---
+  duration_ms: 206.746892
+  type: 'test'
+  ...
+# Subtest: TM-249 refusal head: the PR head is not the task's recorded finish revision
+ok 56 - TM-249 refusal head: the PR head is not the task's recorded finish revision
+  ---
+  duration_ms: 248.040769
+  type: 'test'
+  ...
+# Subtest: TM-249 refusal ci: a pending check
+ok 57 - TM-249 refusal ci: a pending check
+  ---
+  duration_ms: 254.323873
+  type: 'test'
+  ...
+# Subtest: TM-249 refusal ci: a failed check, a skipped required check, and no checks at all
+ok 58 - TM-249 refusal ci: a failed check, a skipped required check, and no checks at all
+  ---
+  duration_ms: 314.017541
+  type: 'test'
+  ...
+# Subtest: TM-249 refusal review: the verdict is not approve
+ok 59 - TM-249 refusal review: the verdict is not approve
+  ---
+  duration_ms: 256.800877
+  type: 'test'
+  ...
+# Subtest: TM-249 refusal mergeable: the PR has conflicts
+ok 60 - TM-249 refusal mergeable: the PR has conflicts
+  ---
+  duration_ms: 209.589343
+  type: 'test'
+  ...
+# Subtest: TM-249 idempotent: a PR already merged at the approved head is recorded and closed without merging again
+ok 61 - TM-249 idempotent: a PR already merged at the approved head is recorded and closed without merging again
+  ---
+  duration_ms: 303.864002
+  type: 'test'
+  ...
+# Subtest: TM-249 idempotent: a PR merged at a different head is refused by name
+ok 62 - TM-249 idempotent: a PR merged at a different head is refused by name
+  ---
+  duration_ms: 203.184767
+  type: 'test'
+  ...
+# Subtest: TM-249 merged but unrecorded is reported explicitly, and a rerun records it without merging again
+ok 63 - TM-249 merged but unrecorded is reported explicitly, and a rerun records it without merging again
+  ---
+  duration_ms: 321.199761
+  type: 'test'
+  ...
+# Subtest: TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+not ok 64 - TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+  ---
+  duration_ms: 159.586733
+  type: 'test'
+  location: '/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-290-agent-orchestration-tests-a-temp-git-repo-is-enr/agent-orchestration/tests/unit/topology-management.test.mjs:1313:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    TM-1: workers finish at ready-for-review; only reviewed and authorized integration can close this task
+    
+    false !== true
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-290-agent-orchestration-tests-a-temp-git-repo-is-enr/agent-orchestration/tests/unit/topology-management.test.mjs:1324:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: TM-263 (a) the lead path still refuses self-asserted flags and a review that did not approve the landed revision
+ok 65 - TM-263 (a) the lead path still refuses self-asserted flags and a review that did not approve the landed revision
+  ---
+  duration_ms: 191.948513
+  type: 'test'
+  ...
+# Subtest: TM-263 (b) a worker, and an agent that is not the lead, are refused record-landing
+ok 66 - TM-263 (b) a worker, and an agent that is not the lead, are refused record-landing
+  ---
+  duration_ms: 180.343993
+  type: 'test'
+  ...
+# Subtest: TM-263 (c) the lead cannot record a landing the server default branch does not have
+ok 67 - TM-263 (c) the lead cannot record a landing the server default branch does not have
+  ---
+  duration_ms: 161.724045
+  type: 'test'
+  ...
+# Subtest: TM-263 (d) with the server policy naming the lead, integrate merges without a grant, with the exact gh argv, and records the policy and ADR
+ok 68 - TM-263 (d) with the server policy naming the lead, integrate merges without a grant, with the exact gh argv, and records the policy and ADR
+  ---
+  duration_ms: 247.866278
+  type: 'test'
+  ...
+# Subtest: TM-263 (d) the policy replaces only the grant: every other integrate guardrail still refuses by name
+ok 69 - TM-263 (d) the policy replaces only the grant: every other integrate guardrail still refuses by name
+  ---
+  duration_ms: 175.709224
+  type: 'test'
+  ...
+# Subtest: TM-263 (e) a lead_autonomy policy only in the LOCAL config is ignored: a grant is required
+ok 70 - TM-263 (e) a lead_autonomy policy only in the LOCAL config is ignored: a grant is required
+  ---
+  duration_ms: 212.335699
+  type: 'test'
+  ...
+# Subtest: TM-263 (f) the server unavailable fails closed to grant-required
+ok 71 - TM-263 (f) the server unavailable fails closed to grant-required
+  ---
+  duration_ms: 222.314315
+  type: 'test'
+  ...
+# Subtest: TM-263 (g) a server policy naming a different lead, or not the integrate scope, needs a grant
+ok 72 - TM-263 (g) a server policy naming a different lead, or not the integrate scope, needs a grant
+  ---
+  duration_ms: 572.148867
+  type: 'test'
+  ...
+# Subtest: TM-263 (h) a worker is refused while the policy exists
+ok 73 - TM-263 (h) a worker is refused while the policy exists
+  ---
+  duration_ms: 340.002218
+  type: 'test'
+  ...
+# Subtest: TM-263 (i) pinnedGithubRepo pins the first answer and refuses a later one that disagrees
+ok 74 - TM-263 (i) pinnedGithubRepo pins the first answer and refuses a later one that disagrees
+  ---
+  duration_ms: 41.817096
+  type: 'test'
+  ...
+# Subtest: TM-263 (i) after pinning, a repointed remote or gh default refuses integrate as "repository" and drops lead autonomy
+ok 75 - TM-263 (i) after pinning, a repointed remote or gh default refuses integrate as "repository" and drops lead autonomy
+  ---
+  duration_ms: 225.290322
+  type: 'test'
+  ...
+# Subtest: TM-263 (j) record-landing: a server lead_autonomy policy naming another lead refuses the locally found lead
+ok 76 - TM-263 (j) record-landing: a server lead_autonomy policy naming another lead refuses the locally found lead
+  ---
+  duration_ms: 317.712021
+  type: 'test'
+  ...
+1..76
+# tests 76
+# suites 0
+# pass 72
+# fail 4
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 28421.127039

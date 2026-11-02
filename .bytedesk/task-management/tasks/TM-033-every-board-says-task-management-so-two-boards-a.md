@@ -7,14 +7,14 @@ title: "Every board says task-management, so two boards are indistinguishable"
 epic: "EP-002"
 acceptance: [{"text":"the header names the repo the board belongs to","done":true,"at":"2026-07-30T19:11:22.226Z"},{"text":"the browser tab title names it too, so tabs are distinguishable","done":true,"at":"2026-07-30T19:11:22.278Z"}]
 evidence: []
-commits: ["https://github.com/ByteDeskAI/bytedesk-marketplace/pull/88"]
+commits: ["https://github.com/ByteDeskAI/bytedesk-marketplace/pull/88","https://github.com/ByteDeskAI/bytedesk-marketplace/pull/243"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "55951e93-6838-4974-8033-11461bdd2dc4"
 branch: "feat/task-management-plugin"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-07-30T19:11:22.384Z"
+updated: "2026-10-09T03:47:36.873Z"
 type: "story"
 priority: "high"
 labels: ["ui"]

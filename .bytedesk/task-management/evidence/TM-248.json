@@ -1,0 +1,245 @@
+{
+  "task": "TM-248",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-09-27T03:14:08.574Z",
+      "owner": "fd2b831f",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-248-agent-orchestration-plan-approval-becomes-a-chec",
+      "branch": "tm/TM-248-agent-orchestration-plan-approval-becomes-a-chec",
+      "intent": "Plan approval becomes a checkable TM-234 delegation scoped to epic/task list, repo, lead and expiry; --actor/--authorized refused inside managed sessions",
+      "boundaries": [
+        "agent-orchestration delegation/management/cli, tests, dist, docs, CHANGELOG",
+        "no push/PR/merge by worker",
+        "no version fields"
+      ],
+      "dependencies": [
+        "TM-234"
+      ],
+      "checks": [
+        "cd agent-orchestration && env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs",
+        "cd agent-orchestration && npm run -s build:check",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/dist",
+        "agent-orchestration/docs/repository-leads.md",
+        "agent-orchestration/tests/unit",
+        "agent-orchestration/topology/cli.mjs",
+        "agent-orchestration/topology/lib/delegation.mjs",
+        "agent-orchestration/topology/lib/management.mjs"
+      ]
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-27T03:28:27.341Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "e357d4dbd215e9600c5d6a9aa2dac75919032d1e",
+        "artifacts": [
+          "agent-orchestration/topology/lib/delegation.mjs",
+          "agent-orchestration/topology/lib/management.mjs",
+          "agent-orchestration/topology/lib/util.mjs",
+          "agent-orchestration/tests/unit/topology-delegation.test.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "agent-orchestration/docs/repository-leads.md",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs"
+        ],
+        "checks": [
+          "env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs: exit 0 — 784 tests, 780 pass, 0 fail, 4 skipped (worker); lead re-ran delegation+management: 57/57",
+          "npm run -s build:check: exit 0 (worker and lead)",
+          "claude plugin validate ./agent-orchestration: exit 0",
+          "rule-1: managed-session --authorized test fails on 6fbd8a4 (Missing expected rejection)"
+        ],
+        "risks": [
+          "management.auto_merge: true (shipped default) lets a managed session run manage integrate with no grant and no plan check; actor unproven. Kept and pinned; operator decision.",
+          "Same-uid limits from TM-234 unchanged."
+        ],
+        "evidence": "Plan-scoped TM-234 grants (epic/tasks, <=14d expiry), TOPOLOGY_DELEGATION_PLAN, managedSessionEvidence shared helper, TOPOLOGY_MANAGEMENT_SELF_ASSERT, actor/delegated_by/delegation_id/plan from the grant."
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-27T03:59:57.985Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "da06a4708f08cae65151d9c1a20742801997bfd5",
+        "artifacts": [
+          "agent-orchestration/topology/lib/delegation.mjs",
+          "agent-orchestration/topology/lib/management.mjs",
+          "agent-orchestration/topology/lib/util.mjs",
+          "agent-orchestration/tests/unit/topology-delegation.test.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "agent-orchestration/docs/repository-leads.md",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs"
+        ],
+        "checks": [
+          "lead: env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs: exit 0 — 803 tests, 799 pass, 0 fail",
+          "lead: npm run -s build:check exit 0",
+          "worker rule-1: managed-session-under-auto_merge and frozen-plan (a) tests fail on e357d4d; census-bound-pane bare-verb test fails with home removed from the helper call"
+        ],
+        "risks": [
+          "auto_merge now applies only to operator shells; every managed session (including a lead via a bare census-bound pane) needs a covering plan grant for integrate and record-landing.",
+          "Epic ids must be typed exactly as stored (EP-019).",
+          "Same-uid limits from TM-234 unchanged."
+        ],
+        "evidence": "Round 2 for Faro at e357d4d: (1) managedSessionEvidence gates integrate/record-landing/eligibility regardless of management.auto_merge; actor/delegated_by/delegation_id/plan from the grant. (2) --epic grants freeze plan.tasks + sha256 at grant time; coverage is membership only; tamper -> TOPOLOGY_DELEGATION_INTEGRITY; legacy epic grants cover nothing. Then merged main c6f355c (TM-243): requireNoAgentSession delegates to managedSessionEvidence (one implementation, census-bound pane included)."
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-09-28T21:39:55.629Z",
+      "revision": "da06a4708f08cae65151d9c1a20742801997bfd5",
+      "landed": "2d42492670bb322ae87918c446900a92ff815747",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "da06a4708f08cae65151d9c1a20742801997bfd5",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR 133 merged at the Faro-approved head with CI green (ADR-0023, ADR-0027)",
+        "policy_auto_merge": true,
+        "at": "2026-09-28T21:39:55.382Z"
+      }
+    }
+  ],
+  "updated_at": "2026-09-28T21:39:55.629Z",
+  "base_revision": "6fbd8a459d763b0fb58b165e0e99f16303ba2c97",
+  "owner": "fd2b831f",
+  "workflow_run_id": "tm-TM-248",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-248-agent-orchestration-plan-approval-becomes-a-chec",
+  "branch": "tm/TM-248-agent-orchestration-plan-approval-becomes-a-chec",
+  "started": true,
+  "state": "merged",
+  "finish": {
+    "revision": "da06a4708f08cae65151d9c1a20742801997bfd5",
+    "artifacts": [
+      "agent-orchestration/topology/lib/delegation.mjs",
+      "agent-orchestration/topology/lib/management.mjs",
+      "agent-orchestration/topology/lib/util.mjs",
+      "agent-orchestration/tests/unit/topology-delegation.test.mjs",
+      "agent-orchestration/tests/unit/topology-management.test.mjs",
+      "agent-orchestration/docs/repository-leads.md",
+      "agent-orchestration/CHANGELOG.md",
+      "agent-orchestration/dist/cli.cjs",
+      "agent-orchestration/dist/mcp.cjs"
+    ],
+    "checks": [
+      "lead: env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs: exit 0 — 803 tests, 799 pass, 0 fail",
+      "lead: npm run -s build:check exit 0",
+      "worker rule-1: managed-session-under-auto_merge and frozen-plan (a) tests fail on e357d4d; census-bound-pane bare-verb test fails with home removed from the helper call"
+    ],
+    "risks": [
+      "auto_merge now applies only to operator shells; every managed session (including a lead via a bare census-bound pane) needs a covering plan grant for integrate and record-landing.",
+      "Epic ids must be typed exactly as stored (EP-019).",
+      "Same-uid limits from TM-234 unchanged."
+    ],
+    "evidence": "Round 2 for Faro at e357d4d: (1) managedSessionEvidence gates integrate/record-landing/eligibility regardless of management.auto_merge; actor/delegated_by/delegation_id/plan from the grant. (2) --epic grants freeze plan.tasks + sha256 at grant time; coverage is membership only; tamper -> TOPOLOGY_DELEGATION_INTEGRITY; legacy epic grants cover nothing. Then merged main c6f355c (TM-243): requireNoAgentSession delegates to managedSessionEvidence (one implementation, census-bound pane included)."
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "c6f355c5406b344a7bae32ed905814f815e9a2ea",
+    "admitted_base": "6fbd8a459d763b0fb58b165e0e99f16303ba2c97",
+    "effective_base": "c6f355c5406b344a7bae32ed905814f815e9a2ea",
+    "range_note": "The range c6f355c5406b344a7bae32ed905814f815e9a2ea..revision excludes code already on the default branch at c6f355c5406b344a7bae32ed905814f815e9a2ea; the task was admitted at 6fbd8a459d763b0fb58b165e0e99f16303ba2c97 and later merged the default branch. Judge only this task's own changes.",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-248-da06a4708f08cae65151d9c1a20742801997bfd5.patch",
+    "patch_sha256": "422bb9b7218ced14aeda2589b2f73954436156aec976cff36803fc5c5d02099c",
+    "nonce": "3c79f8b8-dc36-4037-959f-602749ff5695",
+    "task": "TM-248",
+    "revision": "da06a4708f08cae65151d9c1a20742801997bfd5",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 58433,
+      "sessionId": "$60",
+      "sessionCreated": 1790387813,
+      "paneId": "%60",
+      "panePid": 1948865
+    },
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "created_at": "2026-09-27T03:59:59.452Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-09-27T03:59:59.982Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-248-da06a4708f08cae65151d9c1a20742801997bfd5.json"
+  },
+  "review": {
+    "base_revision": "c6f355c5406b344a7bae32ed905814f815e9a2ea",
+    "admitted_base": "6fbd8a459d763b0fb58b165e0e99f16303ba2c97",
+    "effective_base": "c6f355c5406b344a7bae32ed905814f815e9a2ea",
+    "patch_sha256": "422bb9b7218ced14aeda2589b2f73954436156aec976cff36803fc5c5d02099c",
+    "task": "TM-248",
+    "revision": "da06a4708f08cae65151d9c1a20742801997bfd5",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "agent-orchestration/topology/lib/delegation.mjs",
+        "line": 130,
+        "claim": "plan.sha256 is a plain unkeyed digest. Anyone who can write the delegations file (any same-user process, as the docs already concede for channel evidence) can add a task to plan.tasks and recompute the digest. The CHANGELOG's 'A plan.sha256 that does not match plan.tasks is refused with TOPOLOGY_DELEGATION_INTEGRITY' reads like tamper-proofing, but it only catches casual or partial edits.",
+        "evidence": "planDigest = sha256 of sorted tasks joined by newlines, with no secret. verifiedEvents recomputes it and compares it against the stored value.",
+        "fix": "State it plainly in the CHANGELOG and docs: the digest detects accidental edits and does not resist a same-user writer (the existing not-agent-proof limit). Or drop the claim wording."
+      },
+      {
+        "severity": "note",
+        "file": "agent-orchestration/topology/lib/management.mjs",
+        "line": 447,
+        "claim": "Both majors from e357d4d are resolved. (1) A managed session (markers, agent ancestor, or a census-bound pane) now needs a covering plan grant on integrate and record-landing whatever management.auto_merge says, and the actor comes from the grant. auto_merge only speaks for an operator shell. Tests cover a managed session with no grant, a bare pane-named verb (TM-243), a managed session with a grant, and the operator-shell path. (2) An epic plan is frozen at grant time into plan.tasks, shown in the confirmation, and coverage reads only that list, never the task's current epic. The tests show a task moved into the epic afterwards, or created there, is refused, and a task moved out stays covered. Legacy unfrozen epic grants cover nothing and ask for a re-grant. The managed-session test is now the single shared helper with TM-243. The range (effective base c6f355c) is TM-248's own files. The request includes no test or build output."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 58433,
+      "sessionId": "$60",
+      "sessionCreated": 1790387813,
+      "paneId": "%60",
+      "panePid": 1948865
+    },
+    "request_nonce": "3c79f8b8-dc36-4037-959f-602749ff5695",
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "da06a4708f08cae65151d9c1a20742801997bfd5",
+    "created_at": "2026-09-27T04:00:40.068Z"
+  },
+  "merge": {
+    "revision": "da06a4708f08cae65151d9c1a20742801997bfd5",
+    "landed": "2d42492670bb322ae87918c446900a92ff815747",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "da06a4708f08cae65151d9c1a20742801997bfd5",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR 133 merged at the Faro-approved head with CI green (ADR-0023, ADR-0027)",
+      "policy_auto_merge": true,
+      "at": "2026-09-28T21:39:55.382Z"
+    }
+  }
+}

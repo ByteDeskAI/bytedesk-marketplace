@@ -1,0 +1,27 @@
+TM-276 round 3 @ d3e88a2f6828056151fc19e15fcd1737249a0d25
+build:check exit=0
+== test:unit
+not ok 471 - record-landing records an operator landing that governed completion accepts, without merging
+not ok 478 - governed completion accepts a delegated integration record unchanged
+not ok 502 - TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+not ok 518 - TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+# tests 943
+# pass 935
+# fail 4
+# cancelled 0
+# skipped 4
+== test:contract
+not ok 8 - tests/contract/topology-tmux.test.mjs
+# tests 20
+# pass 19
+# fail 1
+== topology-tmux.test.mjs on clean base 4c87f1ed
+ok 1 - launch → send → wait → status → stop with fake agents in tmux
+ok 2 - a message rung at a deaf pane escalates rather than reporting a delivery
+ok 3 - a pointer stuck in the composer is resubmitted with the submit key alone, never re-typed
+ok 4 - managed shell ignores ambient default-command and an unsignalled timeout is never ready
+ok 5 - observer start commits a v2 attachment only after its own pane acknowledges the current prompt
+# TM-290 provider guard: 5 real provider CLI spawn(s) from tests:
+not ok 1 - tests/contract/topology-tmux.test.mjs
+# pass 5
+# fail 1

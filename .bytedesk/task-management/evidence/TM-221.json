@@ -1,0 +1,107 @@
+{
+  "task": "TM-221",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-09-24T20:45:49.835Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-221-task-management-governed-completion-accepts-appr",
+      "branch": "tm/TM-221-task-management-governed-completion-accepts-appr",
+      "intent": "task-management governedCompletion accepts an approve whose findings are all minor, nit or note; refuses blocker/major or unstructured findings; aligned with agent-orchestration TM-215.",
+      "boundaries": [
+        "task-management/ only",
+        "no change to agent-orchestration",
+        "no push/PR/merge by worker"
+      ],
+      "dependencies": [],
+      "checks": [
+        "cd task-management && node --test tests/unit/*.test.mjs",
+        "task-management build/check scripts if present",
+        "claude plugin validate ./task-management"
+      ],
+      "files": [
+        "task-management/CHANGELOG.md",
+        "task-management/dist",
+        "task-management/lib/governance-check.mjs",
+        "task-management/tests/unit"
+      ]
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-24T20:52:33.408Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "report": {
+        "revision": "321e1c7a6431aaed7eb5fbd43aff1d2185924171",
+        "artifacts": [
+          "commit 321e1c7 on the TM-221 task branch: task-management/lib/governance-check.mjs, tests/unit/governance.test.mjs, CHANGELOG.md"
+        ],
+        "checks": [
+          "lead rerun: cd task-management && node --test tests/unit/*.test.mjs -> 1530 tests, 1530 pass, 0 fail, 0 skipped",
+          "worker: ./run-tests.sh all green; mutation (blocking findings approvable) fails the new test",
+          "claude plugin validate ./task-management: passed; warnings are pre-existing unquoted hook paths"
+        ],
+        "evidence": "Worker report via lead mailbox; lead verified 3 files all within declared touches, clean tree, no AI trailers, reran unit suite and validate.",
+        "risks": [
+          "tests/test-hooks.sh /goal capture assertions intermittent (3/65 in 2 of 5 runs, also without the change); unrelated to governance",
+          "Conformance test parses agent-orchestration/topology/lib/reviewer.mjs source via sibling path; a refactor there fails loudly"
+        ]
+      },
+      "state": "ready-for-review"
+    }
+  ],
+  "updated_at": "2026-09-24T20:52:33.408Z",
+  "base_revision": "d816d70690b744daf9b7a35b5812c7d5ee65e2ee",
+  "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+  "workflow_run_id": "tm-TM-221",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-221-task-management-governed-completion-accepts-appr",
+  "branch": "tm/TM-221-task-management-governed-completion-accepts-appr",
+  "started": true,
+  "state": "ready-for-review",
+  "finish": {
+    "revision": "321e1c7a6431aaed7eb5fbd43aff1d2185924171",
+    "artifacts": [
+      "commit 321e1c7 on the TM-221 task branch: task-management/lib/governance-check.mjs, tests/unit/governance.test.mjs, CHANGELOG.md"
+    ],
+    "checks": [
+      "lead rerun: cd task-management && node --test tests/unit/*.test.mjs -> 1530 tests, 1530 pass, 0 fail, 0 skipped",
+      "worker: ./run-tests.sh all green; mutation (blocking findings approvable) fails the new test",
+      "claude plugin validate ./task-management: passed; warnings are pre-existing unquoted hook paths"
+    ],
+    "evidence": "Worker report via lead mailbox; lead verified 3 files all within declared touches, clean tree, no AI trailers, reran unit suite and validate.",
+    "risks": [
+      "tests/test-hooks.sh /goal capture assertions intermittent (3/65 in 2 of 5 runs, also without the change); unrelated to governance",
+      "Conformance test parses agent-orchestration/topology/lib/reviewer.mjs source via sibling path; a refactor there fails loudly"
+    ]
+  },
+  "collected": false,
+  "review_request": {
+    "base_revision": "d816d70690b744daf9b7a35b5812c7d5ee65e2ee",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-221-321e1c7a6431aaed7eb5fbd43aff1d2185924171.patch",
+    "patch_sha256": "baa5eaac6c75ae5d1518ebcc084655739a70848d6429881fce98bf2d76323ce8",
+    "nonce": "5c73b729-9f9e-4e3d-ab9a-e4a3ef308312",
+    "task": "TM-221",
+    "revision": "321e1c7a6431aaed7eb5fbd43aff1d2185924171",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 25595,
+      "sessionId": "$288",
+      "sessionCreated": 1790282302,
+      "paneId": "%502",
+      "panePid": 2543160
+    },
+    "author_agent_ids": [
+      "1b07de2e-6b73-47c6-ad14-aa29eeea67fd"
+    ],
+    "created_at": "2026-09-24T20:52:33.739Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-09-24T20:52:34.288Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-221-321e1c7a6431aaed7eb5fbd43aff1d2185924171.json"
+  }
+}

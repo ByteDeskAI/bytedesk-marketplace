@@ -1,0 +1,27 @@
+TM-297 round 2 @ c78aac29502d9fb3a5a0f3aaae57737dbec1c9ed (clean tree: 0 changes)
+== build:check
+
+⚡ Done in 222ms
+== test:unit
+# Subtest: agent restart --mode handoff replaces the live session on the promoted prompt and passes the handoff; resume without provider support falls back and says so; agent list flags restart_required
+ok 321 - agent restart --mode handoff replaces the live session on the promoted prompt and passes the handoff; resume without provider support falls back and says so; agent list flags restart_required
+# Subtest: agent restart --mode resume relaunches resuming the same provider session id, with no handoff
+ok 322 - agent restart --mode resume relaunches resuming the same provider session id, with no handoff
+# Subtest: agent restart never interrupts typed input, and refuses a session the agent does not own
+ok 323 - agent restart never interrupts typed input, and refuses a session the agent does not own
+# Subtest: agent restart --mode resume --pass-handoff on a resuming provider returns a result with no handoff to pass
+ok 324 - agent restart --mode resume --pass-handoff on a resuming provider returns a result with no handoff to pass
+not ok 527 - record-landing records an operator landing that governed completion accepts, without merging
+not ok 534 - governed completion accepts a delegated integration record unchanged
+not ok 558 - TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+not ok 574 - TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+# tests 1008
+# pass 1000
+# fail 4
+# skipped 4
+== test:contract
+# tests 19
+# pass 19
+# fail 0
+# skipped 0
+== pre-fix (42b3c554 cli.mjs): fallback test fails 'a resume that fell back to handoff passes the handoff'; resume --pass-handoff test fails 'TypeError: Cannot read properties of null (reading path)'

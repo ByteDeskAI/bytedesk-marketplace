@@ -1,0 +1,32 @@
+["npm","--prefix","agent-orchestration","run","-s","build:check"]
+
+
+  ..../../../../../../../../tmp/ao-build-check-l5DJ2G/host-launcher.cjs  9.5kb
+
+⚡ Done in 24ms
+
+  .../../../../../../../tmp/ao-build-check-l5DJ2G/provider-sandbox.cjs  55.1kb
+
+⚡ Done in 43ms
+
+  ..../../../../../../../../tmp/ao-build-check-l5DJ2G/nats-client.cjs  546.2kb
+
+⚡ Done in 57ms
+
+  .../../../../../../../../tmp/ao-build-check-l5DJ2G/probe-worker.cjs  950.7kb
+
+⚡ Done in 86ms
+
+  ../../../../../../../../../../tmp/ao-build-check-l5DJ2G/cli.cjs  2.7mb ⚠️
+
+⚡ Done in 101ms
+
+  ../../../../../../../../../../tmp/ao-build-check-l5DJ2G/mcp.cjs  3.3mb ⚠️
+
+⚡ Done in 119ms
+
+  ...../../../../../../tmp/ao-build-check-l5DJ2G/claude-agent-acp.mjs  2.2mb ⚠️
+  ..../../../tmp/ao-build-check-l5DJ2G/claude-agent-acp.mjs.LEGAL.txt  197b 
+
+⚡ Done in 179ms
+

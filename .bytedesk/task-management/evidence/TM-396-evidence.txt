@@ -1,0 +1,5 @@
+PR #188 merged (48e58846).
+plugin-rsync tests 22/22: reinstalls a marketplace-root Grok entry from its folder; leaves a per-plugin entry alone; reclaims a stale lock and restores the old install when the new install fails.
+Session hook outside the marketplace returned in 6 ms; repair ran in the background (fake grok recorded uninstall + install --trust <root>/task-management).
+Live run on this machine: none needed.
+Caches synced by the post-commit hook (claude/codex/grok).

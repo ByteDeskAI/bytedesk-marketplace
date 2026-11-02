@@ -1,0 +1,201 @@
+{
+  "task": "TM-240",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-09-25T14:50:33.763Z",
+      "owner": "fd2b831f",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-240-task-management-agent-orchestration-ungoverned-d",
+      "branch": "tm/TM-240-task-management-agent-orchestration-ungoverned-d",
+      "intent": "Make governed admission required at dispatch whenever the repository has a standing reviewer, unless dispatch.governed is explicitly false, so dispatched work can always be independently reviewed; one shared predicate for tm dispatch, the pool and doctor.",
+      "boundaries": [
+        "task-management: lib/dispatch (index.mjs, pool.mjs), lib/governance-check.mjs, doctor, tests/unit, README, docs/agent-first.md, CHANGELOG",
+        "agent-orchestration: only if needed to expose whether a standing reviewer exists (read-only helper), plus tests, dist, CHANGELOG",
+        "explicit dispatch.governed=false still dispatches, with a recorded warning",
+        "no change to reviewer.mjs trustedReviewRange requirements (no backfilled bases)",
+        "no version field added to any .claude-plugin/plugin.json or marketplace.json entry",
+        "no push/PR/merge by the worker beyond its own branch and PR; humans merge"
+      ],
+      "dependencies": [],
+      "checks": [
+        "cd task-management && env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs",
+        "cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs",
+        "cd agent-orchestration && npm run -s build:check",
+        "claude plugin validate ./task-management",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/dist",
+        "agent-orchestration/tests/unit",
+        "agent-orchestration/topology/lib",
+        "task-management/CHANGELOG.md",
+        "task-management/README.md",
+        "task-management/docs/agent-first.md",
+        "task-management/lib/dispatch/index.mjs",
+        "task-management/lib/dispatch/pool.mjs",
+        "task-management/lib/governance-check.mjs",
+        "task-management/tests/unit"
+      ]
+    },
+    {
+      "event": "worker-started",
+      "at": "2026-09-25T14:50:40.352Z",
+      "backend": "tmux",
+      "run": "tmux:tm-TM-240",
+      "workflow_run_id": "tm-TM-240"
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-09-25T14:50:41.241Z",
+      "worker": {
+        "name": "agent:TM-240-fd2b831f",
+        "run": "tmux:tm-TM-240",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-09-25T14:50:40.334Z",
+        "observed_at": "2026-09-25T14:50:41.227Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-240",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 25595,
+          "sessionId": "$481",
+          "sessionCreated": 1790347840,
+          "paneId": "%935",
+          "panePid": 2744687
+        }
+      },
+      "workflow_run_id": "tm-TM-240"
+    },
+    {
+      "event": "worker-stop-refused",
+      "at": "2026-09-25T17:51:36.591Z",
+      "reason": "Task claim is missing, unknown, or held by another session; reconcile ownership without stealing.",
+      "recovery": "Leave the worker running. Wait for it to finish and send its finish report, or ask it to exit its harness, then retry stop-worker."
+    },
+    {
+      "event": "worker-stop-refused",
+      "at": "2026-09-25T17:51:42.417Z",
+      "reason": "Task claim is missing, unknown, or held by another session; reconcile ownership without stealing.",
+      "recovery": "Leave the worker running. Wait for it to finish and send its finish report, or ask it to exit its harness, then retry stop-worker."
+    },
+    {
+      "event": "worker-stop-refused",
+      "at": "2026-09-25T17:51:49.733Z",
+      "reason": "Task worker result has not been collected through the finish protocol.",
+      "recovery": "Leave the worker running. Wait for it to finish and send its finish report, or ask it to exit its harness, then retry stop-worker."
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-25T18:02:46.711Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "f20d03bef30f7595eb484260ab8a2b03487a20da",
+        "artifacts": [
+          "task-management/lib/governance-check.mjs",
+          "task-management/lib/dispatch/index.mjs",
+          "task-management/lib/doctor.mjs",
+          "task-management/bin/tm",
+          "task-management/tests/unit/governance.test.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "task-management/docs/agent-first.md",
+          "task-management/CHANGELOG.md",
+          "agent-orchestration/CHANGELOG.md",
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/129"
+        ],
+        "checks": [
+          "task-management tests/unit: 1549/1549 pass",
+          "agent-orchestration topology-*: 509/510; the one failure (bind adopts a live worker) also fails on clean main 25bd49b on this host",
+          "negative control: default reverted -> both TM-240 gate tests fail"
+        ],
+        "risks": [
+          "Repos with a registered reviewer and dispatch.governed unset will now refuse unadmitted dispatch; the pool lists those tasks as skipped every tick until admitted or opted out"
+        ],
+        "evidence": ".bytedesk/task-management/evidence/TM-240-test-output.txt"
+      },
+      "state": "ready-for-review"
+    }
+  ],
+  "updated_at": "2026-09-25T18:02:46.711Z",
+  "base_revision": "25bd49bcb4f621eff4215030152b846e0e71b6f1",
+  "owner": "fd2b831f",
+  "workflow_run_id": "tm-TM-240",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-240-task-management-agent-orchestration-ungoverned-d",
+  "branch": "tm/TM-240-task-management-agent-orchestration-ungoverned-d",
+  "started": true,
+  "state": "ready-for-review",
+  "worker": {
+    "name": "agent:TM-240-fd2b831f",
+    "run": "tmux:tm-TM-240",
+    "backend": "tmux",
+    "owner": "fd2b831f",
+    "registered_at": "2026-09-25T14:50:40.334Z",
+    "observed_at": "2026-09-25T14:50:41.227Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-240",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 25595,
+      "sessionId": "$481",
+      "sessionCreated": 1790347840,
+      "paneId": "%935",
+      "panePid": 2744687
+    }
+  },
+  "finish": {
+    "revision": "f20d03bef30f7595eb484260ab8a2b03487a20da",
+    "artifacts": [
+      "task-management/lib/governance-check.mjs",
+      "task-management/lib/dispatch/index.mjs",
+      "task-management/lib/doctor.mjs",
+      "task-management/bin/tm",
+      "task-management/tests/unit/governance.test.mjs",
+      "agent-orchestration/tests/unit/topology-management.test.mjs",
+      "task-management/docs/agent-first.md",
+      "task-management/CHANGELOG.md",
+      "agent-orchestration/CHANGELOG.md",
+      "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/129"
+    ],
+    "checks": [
+      "task-management tests/unit: 1549/1549 pass",
+      "agent-orchestration topology-*: 509/510; the one failure (bind adopts a live worker) also fails on clean main 25bd49b on this host",
+      "negative control: default reverted -> both TM-240 gate tests fail"
+    ],
+    "risks": [
+      "Repos with a registered reviewer and dispatch.governed unset will now refuse unadmitted dispatch; the pool lists those tasks as skipped every tick until admitted or opted out"
+    ],
+    "evidence": ".bytedesk/task-management/evidence/TM-240-test-output.txt"
+  },
+  "collected": false,
+  "review_request": {
+    "base_revision": "25bd49bcb4f621eff4215030152b846e0e71b6f1",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-240-f20d03bef30f7595eb484260ab8a2b03487a20da.patch",
+    "patch_sha256": "6627dc5641caef0c15c2c8cc1a1ee9d5bca54d353f09d15af5696290b9533201",
+    "nonce": "c640983d-4a79-4ad7-9b4b-6565ce0707e4",
+    "task": "TM-240",
+    "revision": "f20d03bef30f7595eb484260ab8a2b03487a20da",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 25595,
+      "sessionId": "$288",
+      "sessionCreated": 1790282302,
+      "paneId": "%502",
+      "panePid": 2543160
+    },
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "created_at": "2026-09-25T18:02:47.240Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-09-25T18:02:47.818Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-240-f20d03bef30f7595eb484260ab8a2b03487a20da.json"
+  }
+}

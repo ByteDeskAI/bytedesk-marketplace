@@ -1,0 +1,398 @@
+{
+  "task": "TM-532",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-10-10T08:56:37.284Z",
+      "owner": "fd2b831f",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-532-ao-lead-probes-and-held-mail-stop-the-probe-floo",
+      "branch": "tm/TM-532-ao-lead-probes-and-held-mail-stop-the-probe-floo",
+      "base_revision": "86e37843ce3670801868ddc324e90758469c82ef",
+      "base_source": "server-tip",
+      "intent": "TM-532: stop the lead probe flood (no probe while a fresh cached proof exists; probes record requester and reason), make lead status report the current reason and clear resolved alerts, accept --id on mailbox withdraw, make duplicate held-mail delivery idempotent for dispose, and give a lead one poll interval before a new probe can mark it unresponsive.",
+      "boundaries": [
+        "agent-orchestration topology/lib/lead.mjs, lead-recovery.mjs, standing-mailbox.mjs, delivery.mjs, topology/cli.mjs mailbox and lead lines, tests, CHANGELOG, dist, ROADMAP-SOURCES.json",
+        "no MCP tool additions (TM-514/517-T4 later); no reviewer.mjs",
+        "no version bumps; tmux tests isolated (TMUX unset, per-test TMUX_TMPDIR, -L socket)"
+      ],
+      "dependencies": [],
+      "checks": [
+        "cd agent-orchestration && npm ci",
+        "npm run -s test:unit",
+        "npm run -s build && npm run -s build:check",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/ROADMAP-SOURCES.json",
+        "agent-orchestration/dist/cli.cjs",
+        "agent-orchestration/dist/mcp.cjs",
+        "agent-orchestration/topology/cli.mjs",
+        "agent-orchestration/topology/lib/delivery.mjs",
+        "agent-orchestration/topology/lib/lead-recovery.mjs",
+        "agent-orchestration/topology/lib/lead.mjs",
+        "agent-orchestration/topology/lib/standing-mailbox.mjs"
+      ]
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-10T09:58:06.403Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/260",
+          "agent-orchestration/tests/unit/topology-tm532-probes-held-mail.test.mjs"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+          },
+          {
+            "name": "agent-orchestration: unit",
+            "command": "sh -c \"cd agent-orchestration && env -i PATH=... npm run -s test:unit\"",
+            "exit_code": 0,
+            "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c \"cd task-management && env -i PATH=... node --test tests/unit/*.test.mjs\"",
+            "exit_code": 0,
+            "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+          },
+          {
+            "name": "plugin-rsync: tests",
+            "command": "sh -c \"env -i PATH=... bash plugin-rsync/tests/test-plugin-rsync.sh\"",
+            "exit_code": 0,
+            "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+          }
+        ],
+        "risks": [
+          "The live 2-5 minute probe cadence was not traced to one caller from code alone; the probe-lock race matches it, and the new requested_by/reason fields will name the caller if probes continue.",
+          "Probes under one poll interval old (AO_LEAD_POLL_INTERVAL_MS, default 60s) now read unproven, not unresponsive."
+        ],
+        "evidence": ".bytedesk/task-management/evidence/TM-532-evidence.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-10T09:58:15.314Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/260",
+          "agent-orchestration/tests/unit/topology-tm532-probes-held-mail.test.mjs"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+          },
+          {
+            "name": "agent-orchestration: unit",
+            "command": "sh -c \"cd agent-orchestration && env -i PATH=... npm run -s test:unit\"",
+            "exit_code": 0,
+            "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c \"cd task-management && env -i PATH=... node --test tests/unit/*.test.mjs\"",
+            "exit_code": 0,
+            "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+          },
+          {
+            "name": "plugin-rsync: tests",
+            "command": "sh -c \"env -i PATH=... bash plugin-rsync/tests/test-plugin-rsync.sh\"",
+            "exit_code": 0,
+            "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+          }
+        ],
+        "risks": [
+          "The live 2-5 minute probe cadence was not traced to one caller from code alone; the probe-lock race matches it, and the new requested_by/reason fields will name the caller if probes continue.",
+          "Probes under one poll interval old (AO_LEAD_POLL_INTERVAL_MS, default 60s) now read unproven, not unresponsive."
+        ],
+        "evidence": ".bytedesk/task-management/evidence/TM-532-evidence.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-10-10T10:36:13.042Z",
+      "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02",
+      "landed": "a56792921688f2c4b01c8f3e230deab94480449c",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR #260 merged: faro APPROVE at 0f1c6e2c, lead contract-env fix dd895de5 reviewed, CI green",
+        "policy_auto_merge": true,
+        "at": "2026-10-10T10:36:12.619Z"
+      }
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-10T10:36:14.024Z",
+      "worker": {
+        "name": "agent:TM-532-fd2b831f",
+        "run": "tmux:tm-TM-532",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-10T08:56:40.105Z",
+        "observed_at": "2026-10-10T09:58:06.396Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-532",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$165",
+          "sessionCreated": 1791622599,
+          "paneId": "%234",
+          "panePid": 1072678
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "cleanup",
+      "at": "2026-10-10T10:36:16.671Z",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-532-ao-lead-probes-and-held-mail-stop-the-probe-floo",
+      "branch": "tm/TM-532-ao-lead-probes-and-held-mail-stop-the-probe-floo",
+      "status": "complete"
+    }
+  ],
+  "updated_at": "2026-10-10T10:36:16.671Z",
+  "integration_branch": null,
+  "base_revision": "86e37843ce3670801868ddc324e90758469c82ef",
+  "base_source": "server-tip",
+  "owner": "fd2b831f",
+  "workflow_run_id": "tm-TM-532",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-532-ao-lead-probes-and-held-mail-stop-the-probe-floo",
+  "branch": "tm/TM-532-ao-lead-probes-and-held-mail-stop-the-probe-floo",
+  "started": true,
+  "state": "cleaned",
+  "worker": {
+    "name": "agent:TM-532-fd2b831f",
+    "run": "tmux:tm-TM-532",
+    "backend": "tmux",
+    "owner": "fd2b831f",
+    "registered_at": "2026-10-10T08:56:40.105Z",
+    "observed_at": "2026-10-10T09:58:06.396Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-532",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$165",
+      "sessionCreated": 1791622599,
+      "paneId": "%234",
+      "panePid": 1072678
+    },
+    "stopped_at": "2026-10-10T10:36:14.024Z"
+  },
+  "finish": {
+    "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02",
+    "artifacts": [
+      "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/260",
+      "agent-orchestration/tests/unit/topology-tm532-probes-held-mail.test.mjs"
+    ],
+    "checks": [
+      {
+        "name": "agent-orchestration: npm ci",
+        "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+        "exit_code": 0,
+        "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+      },
+      {
+        "name": "agent-orchestration: unit",
+        "command": "sh -c \"cd agent-orchestration && env -i PATH=... npm run -s test:unit\"",
+        "exit_code": 0,
+        "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+      },
+      {
+        "name": "agent-orchestration: build:check",
+        "command": "npm --prefix agent-orchestration run -s build:check",
+        "exit_code": 0,
+        "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+      },
+      {
+        "name": "task-management: unit",
+        "command": "sh -c \"cd task-management && env -i PATH=... node --test tests/unit/*.test.mjs\"",
+        "exit_code": 0,
+        "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+      },
+      {
+        "name": "agent-orchestration: plugin validate",
+        "command": "claude plugin validate ./agent-orchestration",
+        "exit_code": 0,
+        "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+      },
+      {
+        "name": "task-management: plugin validate",
+        "command": "claude plugin validate ./task-management",
+        "exit_code": 0,
+        "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+      },
+      {
+        "name": "plugin-rsync: tests",
+        "command": "sh -c \"env -i PATH=... bash plugin-rsync/tests/test-plugin-rsync.sh\"",
+        "exit_code": 0,
+        "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02"
+      }
+    ],
+    "risks": [
+      "The live 2-5 minute probe cadence was not traced to one caller from code alone; the probe-lock race matches it, and the new requested_by/reason fields will name the caller if probes continue.",
+      "Probes under one poll interval old (AO_LEAD_POLL_INTERVAL_MS, default 60s) now read unproven, not unresponsive."
+    ],
+    "evidence": ".bytedesk/task-management/evidence/TM-532-evidence.md"
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "86e37843ce3670801868ddc324e90758469c82ef",
+    "admitted_base": "86e37843ce3670801868ddc324e90758469c82ef",
+    "effective_base": "86e37843ce3670801868ddc324e90758469c82ef",
+    "range_note": "The range 86e37843ce3670801868ddc324e90758469c82ef..revision starts at the task admission commit.",
+    "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-532-ao-lead-probes-and-held-mail-stop-the-probe-floo",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-532-0f1c6e2c377952f2cd570d55af609b8072154d02.patch",
+    "patch_sha256": "fb195d212612ccee8a905f66c1112d49fbdd6dad7d01e1a8a955f07f408acee8",
+    "packet_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-532-0f1c6e2c377952f2cd570d55af609b8072154d02.packet",
+    "packet_sha256": "4a2f405d7c8b0c1c4cd3ba55ba58b9b7bf339da614af27122b12cca721c4d5a4",
+    "checks_unsatisfied": [],
+    "nonce": "d69d3462-22e6-4c61-acc6-819c9a87e7a2",
+    "task": "TM-532",
+    "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "created_at": "2026-10-10T09:58:09.444Z",
+    "delivery": {
+      "rang": true,
+      "submitted": true,
+      "at": "2026-10-10T09:58:10.740Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-532-0f1c6e2c377952f2cd570d55af609b8072154d02.json"
+  },
+  "review": {
+    "base_revision": "86e37843ce3670801868ddc324e90758469c82ef",
+    "admitted_base": "86e37843ce3670801868ddc324e90758469c82ef",
+    "effective_base": "86e37843ce3670801868ddc324e90758469c82ef",
+    "patch_sha256": "fb195d212612ccee8a905f66c1112d49fbdd6dad7d01e1a8a955f07f408acee8",
+    "task": "TM-532",
+    "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "agent-orchestration/topology/lib/lead.mjs",
+        "line": 40009,
+        "claim": "With the default ack timeout shorter than the 60 s poll interval, a fresh probe that times out reads `unproven`, never `unresponsive`, which delays detecting a hung lead by at least one poll interval.",
+        "evidence": "probeMiss treats any probe pending less than LEAD_POLL_INTERVAL_MS as undelivered.",
+        "fix": "In a follow-up, document the detection delay in the CHANGELOG, or have recovery wait at least one poll interval before judging."
+      },
+      {
+        "severity": "note",
+        "file": "agent-orchestration/topology/lib/lead-recovery.mjs",
+        "line": 1846,
+        "claim": "I reviewed revision 0f1c6e2c (patch sha256 fb195d21…), the same patch as requests d69d3462 and 281e43cc, which were blocked for scope and then for evidence. All files are now within the touches, and all required checks pass as host-run results with output (agent-orchestration unit 1348 and 0, task-management unit 1726 and 0, plugin-rsync tests with 0 failing). Criterion 1: the cached-proof check is repeated under the probe lock, so no probe is minted or rung while a proof within its TTL exists, and every probe and ring outcome records requested_by and reason. Criterion 2: lead status reports the current reason (last_error is blanked when the lead is responsive now, neutral recovery carries the current error) and a resolved checkout-repair alert is cleared and journaled. Criterion 3: `withdraw --id` (and positional or --message for wait, reply and dispose) works, and dispose accepts already delivered standing mail for its recipient, so a duplicate delivery is a deduplicated no-op."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "request_nonce": "0eb198de-964d-4c08-a307-19e1912052e0",
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "0f1c6e2c377952f2cd570d55af609b8072154d02",
+    "created_at": "2026-10-10T10:09:15.117Z"
+  },
+  "merge": {
+    "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02",
+    "landed": "a56792921688f2c4b01c8f3e230deab94480449c",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "0f1c6e2c377952f2cd570d55af609b8072154d02",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR #260 merged: faro APPROVE at 0f1c6e2c, lead contract-env fix dd895de5 reviewed, CI green",
+      "policy_auto_merge": true,
+      "at": "2026-10-10T10:36:12.619Z"
+    }
+  }
+}

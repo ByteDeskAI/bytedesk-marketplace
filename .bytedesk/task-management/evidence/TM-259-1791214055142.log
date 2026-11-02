@@ -1,0 +1,1 @@
+Merged to main via integration PR #216 (63458d7c), source PR #210. CI green on #216 after merging main (unit-build-contracts, test-build-install, strict installed-cache, check). Lead ran both full suites on the integrated tree with no git identity (as CI): AO test:unit 1142 pass 0 fail; task-management run-tests.sh exit 0. Worker proved each new test red on revert.

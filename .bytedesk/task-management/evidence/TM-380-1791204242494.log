@@ -1,0 +1,2 @@
+PR #189 merged (71a377af). test-enhance-mine.sh: 45 passed, exit 0 (re-run by lead); red under 3 deliberate breaks. test-mcp.sh 39-tool failure pre-exists on origin/main.
+Dry-run on marketplace transcripts: 146 files, 63,378 entries, 1,665 findings; top themes ERR_ASSERTION, worktree-isolation refusals, sleep workaround (284), TOPOLOGY_REVIEWER_RESPONSE (44).

@@ -1,0 +1,62 @@
+TM-324 checks — revision 2e6f343f1c3b40e8664bf2206074612d23a798f4 (rebuilt on main 9f9c37d0, ao 0.17.3), 2026-10-11
+Tree dirty at measurement: 0 paths
+Control: unmodified main 9f9c37d0 in a detached worktree (/tmp/tm324-control), same commands.
+
+== Target tests (test:unit preloads) ==
+ok 1 - redactUrl drops credentials and keeps host and port
+ok 2 - redactUrl fails closed on server lists and malformed URLs
+ok 3 - a dead AO_NATS_URL fails every open and starts no local server; the lead gets one outage mail when it answers again, then one recovery mail
+ok 4 - an open from an env without AO_NATS_URL does not close the dead AO_NATS_URL outage: one outage mail, no recovery mail
+ok 5 - openNatsTransport records the selection under the caller's home, not the process home
+ok 6 - a configured server that accepts TCP but refuses NATS is re-dialled with backoff, not every tick
+ok 7 - an outage nothing retries any more is retired after the bound: one closing mail, doctor clears, no re-dials
+ok 8 - a non-supervisor holding the orch.sock fallback keeps its outage open; closing it lets the outage retire
+ok 9 - C2: recovery waits for the last fallback holder; the lead gets one outage and one recovery, read from its inbox
+ok 10 - C3/C6: a configured server without JetStream is neither probed as back nor recorded as recovered
+ok 11 - C6: a configured port that only accepts TCP is never re-dialled
+ok 12 - C4/C5: a transport.json write that fails is surfaced on the selection and in the start-log view
+ok 13 - C5: the start-log view is this connection's selection, not whatever transport.json says now
+ok 14 - B2: concurrent read-modify-writes of transport.json lose nothing
+ok 15 - B3: text services status names the transport and an open outage
+ok 16 - no credential from a single, list or malformed AO_NATS_URL reaches transport.json, doctor, status, the start log or lead mail
+ok 17 - only NATS outages are classified as transport failures
+ok 18 - a cached connection that reports closed is replaced, not reused
+ok 19 - a JetStream TIMEOUT and a closed connection each degrade one tick, and the next tick dials a fresh connection
+ok 20 - a programming error in the transport path is still fatal
+ok 21 - a one-shot supervise still reports a NATS outage as its answer
+ok 22 - a supervisor keeps its pid across a real nats-server kill -9 and restart, and publishes again
+# tests 22
+# pass 22
+# fail 0
+# skipped 0
+
+== Required checks ==
+agent-orchestration: npm ci          exit 0
+agent-orchestration: build:check     exit 0
+agent-orchestration: plugin validate exit 0
+task-management: plugin validate     exit 0
+plugin-rsync: tests                  exit 0
+agent-orchestration: unit            exit 1 — # pass 1338 # fail 10 
+  control main:                      # pass 1338 # fail 10  — identical failure set (diff empty)
+task-management: unit                exit 1 — # pass 1685 # fail 41 
+  control main:                      # pass 1685 # fail 41  — identical failure set (diff empty)
+
+Pre-existing failures, all governed-worker tests refused because the run is inside a dispatched worker's process tree:
+     28       error: 'a dispatched worker cannot grant or change governed task ownership'
+     11       error: |-
+      2       error: "goal resume is a human's decision; refused for an agent session (dispatched worker via ancestry)"
+      2       error: 'a dispatched worker cannot rebind its own dispatch; the lead runs ao-topology manage rebind'
+
+agent-orchestration failures (same on main):
+  actual tm CLI provisions once, records worker claim, and enforces start before admission
+  TM-240: a standing reviewer refuses unadmitted tm dispatch; admit, dispatch, finish yields a reviewable revision
+  production worker proof uses actual tm registry and observed process exit before merge and cleanup
+  TM-417 AC4: admit, tm dispatch on the topology backend, finish report and reviewer request agree on one run id
+  record-landing records an operator landing that governed completion accepts, without merging
+  governed completion accepts a delegated integration record unchanged
+  TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+  TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+  TM-347: a governed task returns to working after changes are requested, and only a new revision can be approved
+  TM-247 AC9: a develop merge-in on the approved revision is eligible, lands, cleans up and passes governed completion
+
+Note: one earlier full run at 1ce74046 also failed 'a pane's liveness and exit status come from one answer' (topology-launch); it passed 3/3 alone and passed in the final full run at 2e6f343f1c3b40e8664bf2206074612d23a798f4.

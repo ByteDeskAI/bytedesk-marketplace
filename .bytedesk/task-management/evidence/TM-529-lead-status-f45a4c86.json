@@ -1,0 +1,73 @@
+{
+  "identity": {
+    "id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "kind": "git-common-dir",
+    "git_common_dir": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git"
+  },
+  "record": {
+    "version": 1,
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "agent_id": "fd2b831f",
+    "agent_name": "Marketplace Conductor",
+    "mode": "dedicated",
+    "managed": true,
+    "externally_owned": false,
+    "session": "mass-laptop01--bytedesk-marketplace--lead--marketplace",
+    "pane": "%17",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$17",
+      "sessionCreated": 1791152777,
+      "paneId": "%17",
+      "panePid": 88351,
+      "sessionName": "mass-laptop01--bytedesk-marketplace--lead--marketplace",
+      "command": "claude",
+      "cwd": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/agent-orchestration/agents/fd2b831f",
+      "alive": true,
+      "title": "✳ Claude Code",
+      "identity": {
+        "id": "01M44GCTFXMHJ9P0KK7TXHG0HM",
+        "agent": "fd2b831f",
+        "role": "lead",
+        "repo": "bytedesk-marketplace",
+        "repoOrigin": "ByteDeskAI/bytedesk-marketplace",
+        "node": "mass-laptop01",
+        "kind": "role-session"
+      }
+    },
+    "provider": "claude",
+    "created_at": "2026-09-11T21:38:21.688Z",
+    "updated_at": "2026-10-04T22:26:24.627Z",
+    "consumer": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace",
+    "consumers": []
+  },
+  "status": "responsive",
+  "library_lead": "fd2b831f",
+  "verdict_source": "cached",
+  "proof_age_ms": 1878417,
+  "recovery": {
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "action": "reused",
+    "attempts": 0,
+    "last_error": null,
+    "next_retry_at": null,
+    "alert": null,
+    "pending_requests": 0,
+    "checkout_repair": {
+      "action": "refused",
+      "path": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace",
+      "status": "corrupt",
+      "attempts": 1,
+      "next_retry_at": "2026-10-09T08:14:35.504Z",
+      "alert": {
+        "code": "TOPOLOGY_CHECKOUT_NOT_REPAIRABLE",
+        "path": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace",
+        "message": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace is corrupt (error: refs/heads/tm/TM-525-ao-reviewer-a-reviewer-that-cannot-submit-stale-: invalid reflog entry 0e1550821b82268454addffefac5e29497759de2\nerror: refs/heads/tm/TM-525-ao-reviewer-a-reviewer-that-cannot-submit-stale-: invalid reflog entry 0e1550821b82268454addffefac5e29497759de2); this needs a human, so nothing was changed."
+      },
+      "at": "2026-10-09T08:14:25.504Z"
+    },
+    "updated_at": "2026-10-09T18:41:59.027Z",
+    "state_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/leads/8890762dbb279261.recovery.json"
+  }
+}

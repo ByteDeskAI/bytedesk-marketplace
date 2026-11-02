@@ -15,8 +15,9 @@ actor: "main"
 session: "8e87dbc7-3321-4e05-8648-b64d7c6319bb"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-11T18:41:36.670Z"
-labels: ["plugin:agent-orchestration"]
+updated: "2026-09-27T03:13:53.795Z"
+labels: ["plugin:agent-orchestration","ready-for-agent"]
+triagedBy: "auto"
 ---
 
 Found by W2 during EP-019 (TM-164 AC4, 2026-09-11). acknowledgePrompt (topology/lib/prompt-lifecycle.mjs) accepts an acknowledgement when the caller's binding matches the staged incarnation, but cli.mjs builds that binding by matching the caller's TMUX_PANE environment variable against listed panes. TMUX_PANE is set by the caller, and the pane id is readable from session.json or tmux list-panes; the nonce and revision are readable from prompt-state.json. Run C (real tmux, commit 6f63b53, test edited): a process outside the observer pane set TMUX_PANE=%2 with the correct agent, session, repository, nonce and revision; prompt ack exited 0 and wrote status current with applied_binding for pane %2, so observer start would pass its readiness gate without the pane acknowledging. The committed test only covers the empty-TMUX_PANE forgery. Scope: this is a same-user trust boundary (such a process can already read the files and type into the pane), so the gate protects against a stale or replaced process acknowledging by mistake, not against a hostile same-user process. Also noted: promotePromptForIncarnation records replacement controlled-restart for a brand-new session, not only a restart.

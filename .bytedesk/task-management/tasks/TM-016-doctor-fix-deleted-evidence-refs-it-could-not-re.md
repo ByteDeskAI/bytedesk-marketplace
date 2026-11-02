@@ -7,13 +7,13 @@ title: "doctor --fix deleted evidence refs it could not resolve, including PR ur
 epic: "EP-002"
 acceptance: [{"text":"a url, an opaque handle and a present absolute path all survive doctor --fix","done":true,"at":"2026-07-30T01:13:04.792Z"},{"text":"an absolute ref that really is missing is still reported and dropped","done":true,"at":"2026-07-30T01:13:04.841Z"}]
 evidence: []
-commits: ["https://github.com/ByteDeskAI/bytedesk-marketplace/pull/70"]
+commits: ["https://github.com/ByteDeskAI/bytedesk-marketplace/pull/70","https://github.com/ByteDeskAI/bytedesk-marketplace/pull/237"]
 blockedBy: []
 blocks: []
 actor: "main"
 branch: "feat/task-management-plugin"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-07-30T01:13:04.940Z"
+updated: "2026-10-09T01:55:15.017Z"
 type: "bug"
 closed: "2026-07-30T01:13:04.939Z"
 ---

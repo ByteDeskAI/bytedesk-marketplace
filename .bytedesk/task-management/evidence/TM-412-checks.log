@@ -1,0 +1,33 @@
+commit 4678c5d5daa868d2e9bdc27b4a6ede6e4fd9c188 dirty:
+ M ../.claude/helpers/graft-hooks.cjs
+ M ../.claude/helpers/graft-statusline.cjs
+ M ../.claude/settings.json
+ M ../.claude/skills/graft/SKILL.md
+ M ../.grok/skills/graft/SKILL.md
+ M CHANGELOG.md
+ M dist/cli.cjs
+ M dist/mcp.cjs
+ M docs/repository-leads.md
+ M tests/unit/topology-management.test.mjs
+ M topology/cli.mjs
+ M topology/lib/management.mjs
+?? ../opencode.json
+npm ci exit 0
+build exit 0
+build:check exit 0
+  ..../../../tmp/ao-build-check-qQMv0j/claude-agent-acp.mjs.LEGAL.txt  197b 
+
+⚡ Done in 216ms
+roadmap:check exit 0
+ROADMAP OK: 55 tasks, 96 unlocks, 6 goals, 7 trajectories, 7 gaps.
+validate exit 0
+
+  ❯ version: No version specified. Consider adding a version following semver (e.g., "1.0.0")
+
+✔ Validation passed with warnings
+test:unit exit 0
+# tests 1292
+# pass 1288
+# fail 0
+# cancelled 0
+# skipped 4

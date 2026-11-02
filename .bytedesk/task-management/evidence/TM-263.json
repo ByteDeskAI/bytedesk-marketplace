@@ -1,0 +1,252 @@
+{
+  "task": "TM-263",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-09-28T20:03:27.090Z",
+      "owner": "fd2b831f",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-263-agent-orchestration-the-repository-lead-records-",
+      "branch": "tm/TM-263-agent-orchestration-the-repository-lead-records-",
+      "intent": "Repository lead records landings without a grant; server-side management.lead_autonomy policy authorizes the lead to integrate (ADR-0027); integrate_via pull-request on",
+      "boundaries": [
+        "agent-orchestration management/delegation/cli, tests, dist, docs, CHANGELOG; this repo config.json",
+        "all integrate guardrails other than the grant unchanged; workers always refused",
+        "no push/PR/merge by the worker; no version fields"
+      ],
+      "dependencies": [
+        "TM-248",
+        "TM-249"
+      ],
+      "checks": [
+        "cd agent-orchestration && env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs",
+        "cd agent-orchestration && npm run -s build:check",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/dist",
+        "agent-orchestration/docs/repository-leads.md",
+        "agent-orchestration/tests/unit",
+        "agent-orchestration/topology/cli.mjs",
+        "agent-orchestration/topology/lib/delegation.mjs",
+        "agent-orchestration/topology/lib/management.mjs"
+      ]
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-28T20:21:22.302Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "32b49d7178eb5823555c378a83ef8074da227b74",
+        "artifacts": [
+          ".bytedesk/agent-orchestration/config.json",
+          "agent-orchestration/topology/lib/delegation.mjs",
+          "agent-orchestration/topology/lib/management.mjs",
+          "agent-orchestration/topology/cli.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "agent-orchestration/docs/repository-leads.md",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs"
+        ],
+        "checks": [
+          "lead: AO_TRANSPORT=file env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs: exit 0 — 832 tests, 828 pass, 0 fail",
+          "lead: npm run -s build:check exit 0",
+          "worker: claude plugin validate exit 0; rule-1: 7 of 10 new tests fail on e9bf83c"
+        ],
+        "risks": [
+          "Authority now rests on the pane-proven lead plus a server-side policy, not per-plan operator intent (ADR-0027 consequences).",
+          "config.json is outside the task touches (the store excludes .bytedesk/), so manage integrate would refuse this PR on scope; it is merged with gh pr merge at the approved head.",
+          "dist diff includes the NATS client because main dist was stale after v0.11.0."
+        ],
+        "evidence": "requireLeadCaller (lead proof reusing TM-234), serverLeadAutonomy via gh contents on the default branch, leadAutonomy scope check, recordLanding lead path with approve-at-revision and server compare; config.json lead_autonomy + integrate_via."
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-28T21:28:12.302Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "cb3658339ac4e95613034d0d9e027c2315585379",
+        "artifacts": [
+          ".bytedesk/agent-orchestration/config.json",
+          "agent-orchestration/topology/lib/delegation.mjs",
+          "agent-orchestration/topology/lib/management.mjs",
+          "agent-orchestration/topology/cli.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "agent-orchestration/docs/repository-leads.md",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs",
+          "agent-orchestration/topology/lib/repoid.mjs",
+          "agent-orchestration/topology/lib/reviewer.mjs"
+        ],
+        "checks": [
+          "lead: npm test: 835 tests, 831 pass, 0 fail",
+          "lead: build then git diff --exit-code dist: no drift; build:check exit 0",
+          "lead: dist diff vs origin/main has 0 lines mentioning nats",
+          "worker: contract suite as CI runs it 18/18; .github gates 35/35; plugin validate exit 0"
+        ],
+        "risks": [
+          "Repository pin is trust-on-first-use host state; a same-user process can edit the pin file (documented).",
+          "Without a server policy, findLead over local agent.json decides the lead for record-landing; bounded by server-branch and approving-review checks (documented).",
+          "config.json is outside the task touches; merged with gh pr merge at the approved head."
+        ],
+        "evidence": "Round 2 for Faro at 32b49d7: merged main 5408a65 (TM-264) so dist carries only TM-263 changes; pinnedGithubRepo (repoid.mjs) pins nameWithOwner on first resolution, refuses mismatches, and every gh pr call passes --repo; githubCompare routed through the pin; record-landing refuses when the server policy names a different lead."
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-09-28T21:39:48.050Z",
+      "revision": "cb3658339ac4e95613034d0d9e027c2315585379",
+      "landed": "1c5e1018b6e5107c591c833adcf937ac2d4fcea5",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "cb3658339ac4e95613034d0d9e027c2315585379",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR 136 merged at the Faro-approved head with CI green (ADR-0023, ADR-0027)",
+        "policy_auto_merge": true,
+        "at": "2026-09-28T21:39:47.780Z"
+      }
+    }
+  ],
+  "updated_at": "2026-09-28T21:39:48.050Z",
+  "base_revision": "e9bf83ca4bc352370e25eeeb300c2eedc44152e6",
+  "owner": "fd2b831f",
+  "workflow_run_id": "tm-TM-263",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-263-agent-orchestration-the-repository-lead-records-",
+  "branch": "tm/TM-263-agent-orchestration-the-repository-lead-records-",
+  "started": true,
+  "state": "merged",
+  "finish": {
+    "revision": "cb3658339ac4e95613034d0d9e027c2315585379",
+    "artifacts": [
+      ".bytedesk/agent-orchestration/config.json",
+      "agent-orchestration/topology/lib/delegation.mjs",
+      "agent-orchestration/topology/lib/management.mjs",
+      "agent-orchestration/topology/cli.mjs",
+      "agent-orchestration/tests/unit/topology-management.test.mjs",
+      "agent-orchestration/docs/repository-leads.md",
+      "agent-orchestration/CHANGELOG.md",
+      "agent-orchestration/dist/cli.cjs",
+      "agent-orchestration/dist/mcp.cjs",
+      "agent-orchestration/topology/lib/repoid.mjs",
+      "agent-orchestration/topology/lib/reviewer.mjs"
+    ],
+    "checks": [
+      "lead: npm test: 835 tests, 831 pass, 0 fail",
+      "lead: build then git diff --exit-code dist: no drift; build:check exit 0",
+      "lead: dist diff vs origin/main has 0 lines mentioning nats",
+      "worker: contract suite as CI runs it 18/18; .github gates 35/35; plugin validate exit 0"
+    ],
+    "risks": [
+      "Repository pin is trust-on-first-use host state; a same-user process can edit the pin file (documented).",
+      "Without a server policy, findLead over local agent.json decides the lead for record-landing; bounded by server-branch and approving-review checks (documented).",
+      "config.json is outside the task touches; merged with gh pr merge at the approved head."
+    ],
+    "evidence": "Round 2 for Faro at 32b49d7: merged main 5408a65 (TM-264) so dist carries only TM-263 changes; pinnedGithubRepo (repoid.mjs) pins nameWithOwner on first resolution, refuses mismatches, and every gh pr call passes --repo; githubCompare routed through the pin; record-landing refuses when the server policy names a different lead."
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "5408a65c61a6d295537560c8720c1d3f89f60106",
+    "admitted_base": "e9bf83ca4bc352370e25eeeb300c2eedc44152e6",
+    "effective_base": "5408a65c61a6d295537560c8720c1d3f89f60106",
+    "range_note": "The range 5408a65c61a6d295537560c8720c1d3f89f60106..revision excludes code already on the default branch at 5408a65c61a6d295537560c8720c1d3f89f60106; the task was admitted at e9bf83ca4bc352370e25eeeb300c2eedc44152e6 and later merged the default branch. Judge only this task's own changes.",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-263-cb3658339ac4e95613034d0d9e027c2315585379.patch",
+    "patch_sha256": "1b0b176518f08af51cb650668f7049f638812ee175c1463f41cbeae5a92d8ba9",
+    "nonce": "689cb932-48d1-45e3-9208-1731aa5346c7",
+    "task": "TM-263",
+    "revision": "cb3658339ac4e95613034d0d9e027c2315585379",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 58433,
+      "sessionId": "$60",
+      "sessionCreated": 1790387813,
+      "paneId": "%60",
+      "panePid": 1948865
+    },
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "created_at": "2026-09-28T21:28:14.390Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-09-28T21:28:14.927Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-263-cb3658339ac4e95613034d0d9e027c2315585379.json"
+  },
+  "review": {
+    "base_revision": "5408a65c61a6d295537560c8720c1d3f89f60106",
+    "admitted_base": "e9bf83ca4bc352370e25eeeb300c2eedc44152e6",
+    "effective_base": "5408a65c61a6d295537560c8720c1d3f89f60106",
+    "patch_sha256": "1b0b176518f08af51cb650668f7049f638812ee175c1463f41cbeae5a92d8ba9",
+    "task": "TM-263",
+    "revision": "cb3658339ac4e95613034d0d9e027c2315585379",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "agent-orchestration/topology/lib/repoid.mjs",
+        "line": 93,
+        "claim": "The repository pin is trust-on-first-use and is written implicitly by whichever gh-using verb first runs (integrate, record-landing, the reviewer's server compare). If the remote or gh default is already repointed when that first call happens, the attacker's repository becomes the pinned one and every later check trusts it. The docs call it trust-on-first-use, but nothing makes the operator set the pin deliberately.",
+        "evidence": "if (!pinned) await writeJson(path, { repo_id, nameWithOwner: repo, ... }) runs inside pinnedGithubRepo, which githubCompare, serverLeadAutonomy and integrateViaPullRequest each call on demand. No operator step or admission step seeds the pin.",
+        "fix": "Seed the pin from an operator-only step (for example ao-topology permissions install, or lead ensure run from an operator shell), and have pinnedGithubRepo refuse rather than create when no pin exists in a managed session. Or at minimum have the first pin write show up in manage status or doctor so the operator notices it."
+      },
+      {
+        "severity": "note",
+        "file": "agent-orchestration/topology/lib/management.mjs",
+        "line": 742,
+        "claim": "All three findings from 32b49d7 are resolved. (1) The dist diff is now limited to this task's source (pinnedGithubRepo, githubCompare and a fingerprint change) after rebasing onto TM-264's rebuild. (2) The GitHub repository is pinned in host state, and every later gh call names it (--repo on pr list, checks, merge and view, and the name in the api path). A disagreeing resolution refuses integrate as repository, drops lead autonomy to grant-required, and fails the server compare, with tests (i) covering it. (3) record-landing by the locally found lead is refused when the server lead_autonomy policy names a different lead, with test (j). The no-policy local-trust bound is documented. The TM-263 acceptance criteria are otherwise met as in the prior review: grantless record-landing is gated on the server default branch and the approved revision, the policy is read only from the server, unavailability fails closed, workers and non-leads are refused, the config sets integrate_via and lead_autonomy, and the docs cover revocation and what is no longer protected. The request includes no test or build output."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 58433,
+      "sessionId": "$60",
+      "sessionCreated": 1790387813,
+      "paneId": "%60",
+      "panePid": 1948865
+    },
+    "request_nonce": "689cb932-48d1-45e3-9208-1731aa5346c7",
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "cb3658339ac4e95613034d0d9e027c2315585379",
+    "created_at": "2026-09-28T21:28:56.751Z"
+  },
+  "merge": {
+    "revision": "cb3658339ac4e95613034d0d9e027c2315585379",
+    "landed": "1c5e1018b6e5107c591c833adcf937ac2d4fcea5",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "cb3658339ac4e95613034d0d9e027c2315585379",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR 136 merged at the Faro-approved head with CI green (ADR-0023, ADR-0027)",
+      "policy_auto_merge": true,
+      "at": "2026-09-28T21:39:47.780Z"
+    }
+  }
+}

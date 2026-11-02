@@ -1,0 +1,1 @@
+PR #231 merged at 3db850e0a4ca8173023e3a3a47ba68d3ef8e5422. Root cause: tests depended on the suite preload setting AO_TRANSPORT=file; fixture now pins it. Independent review approved (rv-230); 45/45 without preload.

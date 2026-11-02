@@ -1,0 +1,439 @@
+{
+  "task": "TM-522",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-10-09T05:24:31.780Z",
+      "owner": "fd2b831f",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-522-teamcity-mcp-repository-leads-have-no-supported-",
+      "branch": "tm/TM-522-teamcity-mcp-repository-leads-have-no-supported-",
+      "base_revision": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+      "base_source": "server-tip",
+      "intent": "TM-522: a repository lead can trigger and read builds of its own TeamCity project through teamcity-mcp tools, using a scoped token from plugin config, never a Bash allow rule. Another project's builds and any deploy configuration stay refused. Document how the operator provisions the scoped token, and do not create or rotate any real secret.",
+      "boundaries": [
+        "teamcity-mcp/ only",
+        "no real TeamCity calls in tests (mock the HTTP layer)",
+        "never read, print or commit a real token",
+        "keep the existing ecosystem semver markers in step (patch or minor bump)"
+      ],
+      "dependencies": [],
+      "checks": [
+        "cd teamcity-mcp && npm ci && npm test",
+        "claude plugin validate ./teamcity-mcp"
+      ],
+      "files": [
+        "teamcity-mcp"
+      ]
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T06:02:00.063Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "396676b3dc5560f892cc1e169308b1b25a240b40",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/249",
+          "teamcity-mcp/src/tools/builds.ts",
+          "teamcity-mcp/bin/teamcity-mcp",
+          "teamcity-mcp/dist/bundle.cjs"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+          },
+          {
+            "name": "agent-orchestration: unit",
+            "command": "sh -c 'cd agent-orchestration && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID npm run -s test:unit'",
+            "exit_code": 1,
+            "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c 'cd task-management && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u TM_NTFY_TOPIC -u TM_NTFY_TOKEN node --test tests/unit/*.test.mjs'",
+            "exit_code": 1,
+            "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+          },
+          {
+            "name": "teamcity-mcp: vitest",
+            "command": "cd teamcity-mcp && npm ci && npx vitest run",
+            "exit_code": 0,
+            "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+          },
+          {
+            "name": "teamcity-mcp: plugin validate",
+            "command": "claude plugin validate ./teamcity-mcp",
+            "exit_code": 0,
+            "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+          }
+        ],
+        "risks": [
+          "agent-orchestration unit (10/1297 fail; NATS live test hung in teardown, killed after the 900s spec timeout) and task-management unit (15/1677 fail) are red at this commit; this commit does not touch either directory (empty diff vs base c9cd187e). Run on a machine at load average ~37 with other sessions' suites running; not re-run against base.",
+          "AC2 token-level scoping is not done: this machine authenticates as the operator (basic auth). Minting a single-project TeamCity user/token is an operator credential action, filed as TM-524 (human-gated). The MCP lead guard is the boundary until then.",
+          "Every TeamCity config is type regular, so deploy refusal relies on 'deploy' in the id/name.",
+          "A same-project config with snapshot dependencies on another project queues that chain (TeamCity behaviour).",
+          "Repo profile without TEAMCITY_MCP_MODE=lead runs full mode; then only the token bounds it."
+        ],
+        "evidence": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/task-management/evidence/TM-522-evidence.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T06:11:53.108Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "396676b3dc5560f892cc1e169308b1b25a240b40",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/249",
+          "teamcity-mcp/src/tools/builds.ts",
+          "teamcity-mcp/bin/teamcity-mcp",
+          "teamcity-mcp/dist/bundle.cjs"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+          },
+          {
+            "name": "agent-orchestration: unit",
+            "command": "sh -c 'cd agent-orchestration && env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" npm run -s test:unit'",
+            "exit_code": 0,
+            "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c 'cd task-management && env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" node --test tests/unit/*.test.mjs'",
+            "exit_code": 0,
+            "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+          },
+          {
+            "name": "plugin-rsync: tests",
+            "command": "sh -c 'env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" bash plugin-rsync/tests/test-plugin-rsync.sh'",
+            "exit_code": 0,
+            "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+          },
+          {
+            "name": "teamcity-mcp: vitest",
+            "command": "cd teamcity-mcp && npm ci && npx vitest run",
+            "exit_code": 0,
+            "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+          },
+          {
+            "name": "teamcity-mcp: plugin validate",
+            "command": "claude plugin validate ./teamcity-mcp",
+            "exit_code": 0,
+            "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+          }
+        ],
+        "risks": [
+          "AC2 token-level scoping is not done: this machine authenticates as the operator (basic auth). Minting a single-project TeamCity user/token is an operator credential action, filed as TM-524 (human-gated). The MCP lead guard is the boundary until then.",
+          "Every TeamCity config is type regular, so deploy refusal relies on 'deploy' in the id/name.",
+          "A same-project config with snapshot dependencies on another project queues that chain (TeamCity behaviour).",
+          "Repo profile without TEAMCITY_MCP_MODE=lead runs full mode; then only the token bounds it."
+        ],
+        "evidence": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/task-management/evidence/TM-522-evidence.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-10-09T08:20:38.613Z",
+      "revision": "396676b3dc5560f892cc1e169308b1b25a240b40",
+      "landed": "e941ed763bfdc36bd79bde479bec2a6c6b8c0fc8",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "396676b3dc5560f892cc1e169308b1b25a240b40",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR #249 merged: Independent governed review (faro): APPROVE at 396676b3 with all required checks clean (lead-run AO 1293/0, tm 1677/0, plugin-rsync 33/0, teamcity-mcp 89/0).",
+        "policy_auto_merge": true,
+        "at": "2026-10-09T08:20:38.156Z"
+      }
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-09T08:20:39.562Z",
+      "worker": {
+        "name": "agent:TM-522-fd2b831f",
+        "run": "tmux:tm-TM-522",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-09T05:24:35.889Z",
+        "observed_at": "2026-10-09T06:02:00.057Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-522",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$152",
+          "sessionCreated": 1791523475,
+          "paneId": "%216",
+          "panePid": 1444761
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "cleanup",
+      "at": "2026-10-09T08:20:41.923Z",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-522-teamcity-mcp-repository-leads-have-no-supported-",
+      "branch": "tm/TM-522-teamcity-mcp-repository-leads-have-no-supported-",
+      "status": "complete"
+    }
+  ],
+  "updated_at": "2026-10-09T08:20:41.923Z",
+  "integration_branch": null,
+  "base_revision": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+  "base_source": "server-tip",
+  "owner": "fd2b831f",
+  "workflow_run_id": "tm-TM-522",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-522-teamcity-mcp-repository-leads-have-no-supported-",
+  "branch": "tm/TM-522-teamcity-mcp-repository-leads-have-no-supported-",
+  "started": true,
+  "state": "cleaned",
+  "worker": {
+    "name": "agent:TM-522-fd2b831f",
+    "run": "tmux:tm-TM-522",
+    "backend": "tmux",
+    "owner": "fd2b831f",
+    "registered_at": "2026-10-09T05:24:35.889Z",
+    "observed_at": "2026-10-09T06:02:00.057Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-522",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$152",
+      "sessionCreated": 1791523475,
+      "paneId": "%216",
+      "panePid": 1444761
+    },
+    "stopped_at": "2026-10-09T08:20:39.562Z"
+  },
+  "finish": {
+    "revision": "396676b3dc5560f892cc1e169308b1b25a240b40",
+    "artifacts": [
+      "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/249",
+      "teamcity-mcp/src/tools/builds.ts",
+      "teamcity-mcp/bin/teamcity-mcp",
+      "teamcity-mcp/dist/bundle.cjs"
+    ],
+    "checks": [
+      {
+        "name": "agent-orchestration: npm ci",
+        "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+        "exit_code": 0,
+        "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+      },
+      {
+        "name": "agent-orchestration: unit",
+        "command": "sh -c 'cd agent-orchestration && env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" npm run -s test:unit'",
+        "exit_code": 0,
+        "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+      },
+      {
+        "name": "agent-orchestration: build:check",
+        "command": "npm --prefix agent-orchestration run -s build:check",
+        "exit_code": 0,
+        "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+      },
+      {
+        "name": "task-management: unit",
+        "command": "sh -c 'cd task-management && env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" node --test tests/unit/*.test.mjs'",
+        "exit_code": 0,
+        "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+      },
+      {
+        "name": "agent-orchestration: plugin validate",
+        "command": "claude plugin validate ./agent-orchestration",
+        "exit_code": 0,
+        "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+      },
+      {
+        "name": "task-management: plugin validate",
+        "command": "claude plugin validate ./task-management",
+        "exit_code": 0,
+        "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+      },
+      {
+        "name": "plugin-rsync: tests",
+        "command": "sh -c 'env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" bash plugin-rsync/tests/test-plugin-rsync.sh'",
+        "exit_code": 0,
+        "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+      },
+      {
+        "name": "teamcity-mcp: vitest",
+        "command": "cd teamcity-mcp && npm ci && npx vitest run",
+        "exit_code": 0,
+        "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+      },
+      {
+        "name": "teamcity-mcp: plugin validate",
+        "command": "claude plugin validate ./teamcity-mcp",
+        "exit_code": 0,
+        "revision": "396676b3dc5560f892cc1e169308b1b25a240b40"
+      }
+    ],
+    "risks": [
+      "AC2 token-level scoping is not done: this machine authenticates as the operator (basic auth). Minting a single-project TeamCity user/token is an operator credential action, filed as TM-524 (human-gated). The MCP lead guard is the boundary until then.",
+      "Every TeamCity config is type regular, so deploy refusal relies on 'deploy' in the id/name.",
+      "A same-project config with snapshot dependencies on another project queues that chain (TeamCity behaviour).",
+      "Repo profile without TEAMCITY_MCP_MODE=lead runs full mode; then only the token bounds it."
+    ],
+    "evidence": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/task-management/evidence/TM-522-evidence.md"
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+    "admitted_base": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+    "effective_base": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+    "range_note": "The range c9cd187ec93aef43a8e513769d3cccbade7d48a5..revision starts at the task admission commit.",
+    "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-522-teamcity-mcp-repository-leads-have-no-supported-",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-522-396676b3dc5560f892cc1e169308b1b25a240b40.patch",
+    "patch_sha256": "d6b2f1db31518392a1b683ebd2dc4ff87142c1757147ef70933f06705c409dd7",
+    "packet_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-522-396676b3dc5560f892cc1e169308b1b25a240b40.packet",
+    "packet_sha256": "8e0dcfb2b7c4d8522f273256f0d99e6d1c7ca40d697d2ca3d73fb6bd81c5be0c",
+    "checks_unsatisfied": [],
+    "nonce": "383b023f-b5e5-4ab9-b682-0be25f777819",
+    "task": "TM-522",
+    "revision": "396676b3dc5560f892cc1e169308b1b25a240b40",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "created_at": "2026-10-09T06:11:54.650Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-10-09T06:11:55.190Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-522-396676b3dc5560f892cc1e169308b1b25a240b40.json"
+  },
+  "review": {
+    "base_revision": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+    "admitted_base": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+    "effective_base": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+    "patch_sha256": "d6b2f1db31518392a1b683ebd2dc4ff87142c1757147ef70933f06705c409dd7",
+    "task": "TM-522",
+    "revision": "396676b3dc5560f892cc1e169308b1b25a240b40",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "teamcity-mcp/src/tools/builds.ts",
+        "line": 519,
+        "claim": "The lead guard checks only the named configuration. A lead can still set arbitrary `properties` and any `branch`, an allowed configuration can start a deploy through a dependent trigger, and deploy detection is name-based ('every configuration on our server is type regular'). 'Production deploy stays operator-gated' holds only as far as configurations are named accordingly and the token's TeamCity role is scoped.",
+        "evidence": "assertLeadMayTrigger checks the id, the affectedProject and deploy by type or name. The POST forwards `args.properties`, `args.branch` and `args.personal` unchanged. tools.test.ts:723 queues DS_ReleasePublish.",
+        "fix": "In a follow-up, allow-list properties and branches in lead mode, allow-list release or publish configurations in the profile, and document that dependent deploy triggers must be checked on the TeamCity side."
+      },
+      {
+        "severity": "minor",
+        "file": "teamcity-mcp/bin/teamcity-mcp",
+        "line": 99,
+        "claim": "The profile is keyed by the main checkout's directory basename, so a fork or second clone with the same name loads the same lead profile and token. This doesn't escalate privilege, but it can select the wrong project's scoped token.",
+        "evidence": "`REPO=\"$(basename -- \"$(dirname -- \"$COMMON\")\")\"`, then `$CONFIG_DIR/repos/$REPO.env`.",
+        "fix": "In a follow-up, key profiles by origin remote, or refuse a profile whose recorded origin differs."
+      },
+      {
+        "severity": "note",
+        "file": "teamcity-mcp/src/tools/builds.ts",
+        "line": 452,
+        "claim": "I reviewed revision 396676b3 (patch sha256 d6b2f1db…), the same patch as requests 5084fe51 and 383b023f, which were blocked only for evidence. All checks are now host-run with output, including teamcity-mcp npm test with 89 of 89 passing, which carries both criteria, plus the seven required checks (agent-orchestration unit 1293 and 0, task-management unit 1677 and 0). Criterion 1: lead mode gives the read tools plus a guarded trigger_build, and the launcher loads the repository profile instead of the user env (tested from the checkout and a worktree). Criterion 2, at the MCP layer: refusal outside the project and for deploy configurations, ids validated against locator injection, and no POST on refusal, with the token's TeamCity role documented as the real boundary. All files are within the touches."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "request_nonce": "3e73312a-4ee0-410c-a1ee-b2b441174648",
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "396676b3dc5560f892cc1e169308b1b25a240b40",
+    "created_at": "2026-10-09T07:15:38.556Z"
+  },
+  "merge": {
+    "revision": "396676b3dc5560f892cc1e169308b1b25a240b40",
+    "landed": "e941ed763bfdc36bd79bde479bec2a6c6b8c0fc8",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "396676b3dc5560f892cc1e169308b1b25a240b40",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR #249 merged: Independent governed review (faro): APPROVE at 396676b3 with all required checks clean (lead-run AO 1293/0, tm 1677/0, plugin-rsync 33/0, teamcity-mcp 89/0).",
+      "policy_auto_merge": true,
+      "at": "2026-10-09T08:20:38.156Z"
+    }
+  }
+}

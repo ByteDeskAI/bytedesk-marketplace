@@ -1,0 +1,127 @@
+{
+  "task": "TM-264",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-09-28T20:31:52.299Z",
+      "owner": "fd2b831f",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-264-agent-orchestration-main-is-red-after-v0-11-0-di",
+      "branch": "tm/TM-264-agent-orchestration-main-is-red-after-v0-11-0-di",
+      "intent": "Repair main after v0.11.0: rebuild dist consistent with the lazy nats decision; make installed-cache contracts pass in CI",
+      "boundaries": [
+        "agent-orchestration dist, build scripts, contract tests, orch-transport, CHANGELOG; CI workflow if needed",
+        "do not change NATS protocol behaviour",
+        "no push/PR/merge by the worker; no version fields"
+      ],
+      "dependencies": [],
+      "checks": [
+        "cd agent-orchestration && npm test",
+        "cd agent-orchestration && npm run -s build:check",
+        "contract suite as CI runs it"
+      ],
+      "files": [
+        ".github/workflows/agent-orchestration.yml",
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/dist",
+        "agent-orchestration/package.json",
+        "agent-orchestration/scripts",
+        "agent-orchestration/tests/contract",
+        "agent-orchestration/topology/lib/orch-transport.mjs"
+      ]
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-28T21:02:01.206Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "c3888f807e95eaf56d078b6012e7e3a5fd96fe7b",
+        "artifacts": [
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs",
+          "agent-orchestration/topology/lib/orch-transport.mjs",
+          "agent-orchestration/tests/contract/topology-activation-tmux.test.mjs",
+          "agent-orchestration/tests/contract/topology-lead-convergence-tmux.test.mjs",
+          "agent-orchestration/tests/contract/topology-role-icon-tmux.test.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "agent-orchestration/CHANGELOG.md"
+        ],
+        "checks": [
+          "lead: npm test: 822 tests, 818 pass, 0 fail",
+          "lead: build then git diff --exit-code dist: no drift; build:check exit 0",
+          "worker: contract suite as CI runs it 18/18 (was 14/4); clean-install 1/1; workflow gates 35/35; plugin validate exit 0"
+        ],
+        "risks": [
+          "dist inlines the nats client (evidence: installed plugins ship no node_modules); lazy import preserved inside openNatsTransport.",
+          "Unbundled bin/ao-topology in an installed plugin cannot use NATS (clear error now); follow-up task."
+        ],
+        "evidence": "Repair of main after v0.11.0: dist rebuilt; 4 tmux contracts pinned to AO_TRANSPORT=file (no contract exercises NATS); TOPOLOGY_NATS_UNAVAILABLE for a missing nats package; TMUX cleared in the implicit-server unit test (TM-256)."
+      },
+      "state": "ready-for-review"
+    }
+  ],
+  "updated_at": "2026-09-28T21:02:01.206Z",
+  "base_revision": "e9bf83ca4bc352370e25eeeb300c2eedc44152e6",
+  "owner": "fd2b831f",
+  "workflow_run_id": "tm-TM-264",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-264-agent-orchestration-main-is-red-after-v0-11-0-di",
+  "branch": "tm/TM-264-agent-orchestration-main-is-red-after-v0-11-0-di",
+  "started": true,
+  "state": "ready-for-review",
+  "finish": {
+    "revision": "c3888f807e95eaf56d078b6012e7e3a5fd96fe7b",
+    "artifacts": [
+      "agent-orchestration/dist/cli.cjs",
+      "agent-orchestration/dist/mcp.cjs",
+      "agent-orchestration/topology/lib/orch-transport.mjs",
+      "agent-orchestration/tests/contract/topology-activation-tmux.test.mjs",
+      "agent-orchestration/tests/contract/topology-lead-convergence-tmux.test.mjs",
+      "agent-orchestration/tests/contract/topology-role-icon-tmux.test.mjs",
+      "agent-orchestration/tests/unit/topology-management.test.mjs",
+      "agent-orchestration/CHANGELOG.md"
+    ],
+    "checks": [
+      "lead: npm test: 822 tests, 818 pass, 0 fail",
+      "lead: build then git diff --exit-code dist: no drift; build:check exit 0",
+      "worker: contract suite as CI runs it 18/18 (was 14/4); clean-install 1/1; workflow gates 35/35; plugin validate exit 0"
+    ],
+    "risks": [
+      "dist inlines the nats client (evidence: installed plugins ship no node_modules); lazy import preserved inside openNatsTransport.",
+      "Unbundled bin/ao-topology in an installed plugin cannot use NATS (clear error now); follow-up task."
+    ],
+    "evidence": "Repair of main after v0.11.0: dist rebuilt; 4 tmux contracts pinned to AO_TRANSPORT=file (no contract exercises NATS); TOPOLOGY_NATS_UNAVAILABLE for a missing nats package; TMUX cleared in the implicit-server unit test (TM-256)."
+  },
+  "collected": false,
+  "review_request": {
+    "base_revision": "e9bf83ca4bc352370e25eeeb300c2eedc44152e6",
+    "admitted_base": "e9bf83ca4bc352370e25eeeb300c2eedc44152e6",
+    "effective_base": "e9bf83ca4bc352370e25eeeb300c2eedc44152e6",
+    "range_note": "The range e9bf83ca4bc352370e25eeeb300c2eedc44152e6..revision starts at the task admission commit.",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-264-c3888f807e95eaf56d078b6012e7e3a5fd96fe7b.patch",
+    "patch_sha256": "1917f0063e194e62ebe7ce1fbd77c2ba5793961a5d06318988840d8362b32dd5",
+    "nonce": "6ae22ad1-6aa9-455d-a5a6-1d1d42e987cc",
+    "task": "TM-264",
+    "revision": "c3888f807e95eaf56d078b6012e7e3a5fd96fe7b",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 58433,
+      "sessionId": "$60",
+      "sessionCreated": 1790387813,
+      "paneId": "%60",
+      "panePid": 1948865
+    },
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "created_at": "2026-09-28T21:02:03.069Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-09-28T21:02:03.609Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-264-c3888f807e95eaf56d078b6012e7e3a5fd96fe7b.json"
+  }
+}

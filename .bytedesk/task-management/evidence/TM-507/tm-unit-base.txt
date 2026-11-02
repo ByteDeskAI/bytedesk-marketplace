@@ -1,0 +1,9 @@
+not ok 3 - actor
+not ok 164 - TM-247 governed worker lifecycle (task-management)
+not ok 236 - tm_task_update start
+not ok 238 - tm_claim
+not ok 257 - tm_worktree new claims and provisions, rm releases and removes, list reads — and refuses a held task
+not ok 424 - the event log's session column
+# tests 1677
+# pass 1662
+# fail 15

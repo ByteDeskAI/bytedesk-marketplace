@@ -1,0 +1,13 @@
+TM-300 evidence @ dd2aada7364a9af659b64d24e35c2abf8ae2308d
+== task-management unit (worker env scrubbed)
+# tests 1579
+# pass 1579
+# fail 0
+== agent-orchestration test:unit
+# tests 1004
+# pass 1000
+# fail 0
+# skipped 4
+== live aoGlobalPrefix vs real ao-topology (temp XDG_CONFIG_HOME)
+{"text":"Live prefix line.","warning":null}
+== claude plugin validate ./task-management: Validation passed with warnings (exit 0)

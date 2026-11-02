@@ -1,0 +1,65 @@
+[
+ {
+  "name": "agent-orchestration: npm ci",
+  "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+  "exit_code": 0,
+  "signal": null,
+  "revision": "55f68a718b86e6a1f3bdb01e5f2cf9d5e1d31b39",
+  "seconds": 5,
+  "output": "/tmp/tm427-req-55f68a71/1.txt"
+ },
+ {
+  "name": "agent-orchestration: unit",
+  "command": "sh -c cd agent-orchestration && env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" npm run -s test:unit",
+  "exit_code": 1,
+  "signal": null,
+  "revision": "55f68a718b86e6a1f3bdb01e5f2cf9d5e1d31b39",
+  "seconds": 900,
+  "output": "/tmp/tm427-req-55f68a71/2.txt"
+ },
+ {
+  "name": "agent-orchestration: build:check",
+  "command": "npm --prefix agent-orchestration run -s build:check",
+  "exit_code": 0,
+  "signal": null,
+  "revision": "55f68a718b86e6a1f3bdb01e5f2cf9d5e1d31b39",
+  "seconds": 1,
+  "output": "/tmp/tm427-req-55f68a71/3.txt"
+ },
+ {
+  "name": "task-management: unit",
+  "command": "sh -c cd task-management && env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" node --test tests/unit/*.test.mjs",
+  "exit_code": 0,
+  "signal": null,
+  "revision": "55f68a718b86e6a1f3bdb01e5f2cf9d5e1d31b39",
+  "seconds": 18,
+  "output": "/tmp/tm427-req-55f68a71/4.txt"
+ },
+ {
+  "name": "agent-orchestration: plugin validate",
+  "command": "claude plugin validate ./agent-orchestration",
+  "exit_code": 0,
+  "signal": null,
+  "revision": "55f68a718b86e6a1f3bdb01e5f2cf9d5e1d31b39",
+  "seconds": 0,
+  "output": "/tmp/tm427-req-55f68a71/5.txt"
+ },
+ {
+  "name": "task-management: plugin validate",
+  "command": "claude plugin validate ./task-management",
+  "exit_code": 0,
+  "signal": null,
+  "revision": "55f68a718b86e6a1f3bdb01e5f2cf9d5e1d31b39",
+  "seconds": 0,
+  "output": "/tmp/tm427-req-55f68a71/6.txt"
+ },
+ {
+  "name": "plugin-rsync: tests",
+  "command": "sh -c env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" bash plugin-rsync/tests/test-plugin-rsync.sh",
+  "exit_code": 0,
+  "signal": null,
+  "revision": "55f68a718b86e6a1f3bdb01e5f2cf9d5e1d31b39",
+  "seconds": 3,
+  "output": "/tmp/tm427-req-55f68a71/7.txt"
+ }
+]

@@ -7,7 +7,7 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: session-open control seam, run lineage and launcher binding (gateway EP-023 phase 2a)"
 epic: "EP-019"
 acceptance: [{"text":"session-open returns a capability URL for a run without opening a browser (--run-id, --no-browser, --json)","done":false},{"text":"Attested session decisions record an actor label, and the decision stays with the session","done":false},{"text":"Worker and lead runs carry a parent/conductor link in the run snapshot","done":false},{"text":"Runs record the launcher binding (tmux tab or pane) so a consumer can jump to the exact terminal","done":false},{"text":"Unit tests pass, released to main, plugin-rsync run","done":false}]
-evidence: []
+evidence: [".bytedesk/task-management/evidence/TM-288-board-review.md"]
 commits: []
 blockedBy: []
 blocks: []
@@ -15,10 +15,12 @@ actor: "main"
 session: "58d7cd20-54ac-45c8-84a6-ea82dbebfad2"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-labels: ["ready-for-agent","plugin:agent-orchestration"]
-triagedBy: "auto"
-updated: "2026-09-12T15:54:57.657Z"
+labels: ["plugin:agent-orchestration","wontfix"]
+triagedBy: "human"
+updated: "2026-10-02T05:13:14.902Z"
 parkedReason: "Superseded before any work started. Phase 2a was already delivered in this repo by PR #114 (merged 2026-09-12T03:37:03Z, 24 commits, dee2637 on origin/main) under the gateway's TM-304, whose four AC closed with evidence logs. Filed here by the gateway lead minutes after that merge, so it duplicates shipped work. NOT closed as done: the five AC on this task were written by me and I did not verify each one against the merged code — closing it needs either that verification or an operator decision to drop it."
+comments: [{"author":"main","ts":"2026-10-02T05:13:14.315Z","text":"TM-288 board review (approved by Ryan 2026-10-02): duplicate of gateway TM-304 (PR #114, merged 2026-09-12): src/cli.mjs:72-78; service.mjs:283, :284, :523. AC5's plugin-rsync step was superseded by TM-284. Gateway TM-304 lives in another repo's store, so no typed link can be made here."}]
+evidenceSources: {".bytedesk/task-management/evidence/TM-288-board-review.md":{"source":"/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/task-management/evidence/TM-288-board-review.md","sha256":"ed7f9cfbae92b509e64cae65512005370365914d8cf8db10ab77b761d76619df","bytes":8836,"at":"2026-10-02T05:13:14.897Z"}}
 ---
 
 Raised by the bytedesk-remote-gateway repository lead. This is the marketplace half of

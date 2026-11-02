@@ -1,0 +1,219 @@
+TM-298 verification — 2026-10-02T17:11:01-04:00
+commit base: d5f054806aca550be273fd13a640c7254792a78b
+dirty paths (the change under test):
+ M .claude/helpers/graft-hooks.cjs
+ M .claude/helpers/graft-statusline.cjs
+ M .claude/settings.json
+ M .claude/skills/graft/SKILL.md
+ M .grok/skills/graft/SKILL.md
+ M agent-orchestration/CHANGELOG.md
+ M agent-orchestration/tests/contract/topology-activation-tmux.test.mjs
+ M agent-orchestration/tests/contract/topology-lead-recovery-tmux.test.mjs
+ M agent-orchestration/tests/contract/topology-tmux.test.mjs
+ M agent-orchestration/tests/helpers/isolated-tmux.mjs
+ M agent-orchestration/tests/helpers/tmux-preflight.mjs
+ M agent-orchestration/tests/unit/register-file-transport.mjs
+ M agent-orchestration/tests/unit/topology-repo-enrollment.test.mjs
+ M agent-orchestration/tests/unit/topology-supervision.test.mjs
+?? agent-orchestration/tests/helpers/suite-leaks.mjs
+?? agent-orchestration/tests/unit/suite-leaks.test.mjs
+?? opencode.json
+npm ci exit=0
+build:check exit=0
+test:unit exit=1
+not ok 525 - record-landing records an operator landing that governed completion accepts, without merging
+not ok 532 - governed completion accepts a delegated integration record unchanged
+not ok 556 - TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+not ok 572 - TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+# tests 999
+# pass 991
+# fail 4
+# cancelled 0
+# skipped 4
+TMUX= test:contract exit=0
+# tests 19
+# pass 19
+# fail 0
+# cancelled 0
+# skipped 0
+default tmux server sessions before=26 after=24; diff:
+25,26d24
+< tm-TM-300
+< tm-TM-499
+
+Notes
+- Provider guard (TM-290) printed no spawn report in either suite; suite-end check (TM-298) printed no report in either suite.
+- Default-server diff: tm-TM-300 and tm-TM-499 vanished mid-run. TM-300's PR #161 merged 17:14 and its lead cleaned up its worker;
+  tm-TM-499 is not a task in this store. Neither started under /tmp, and nothing in this change can kill a session on that server
+  (the only access is read-only list-panes). An earlier contract run in a quiet window: 27 sessions before, 27 after, identical.
+- The 4 unit failures (topology-management: 525, 532, 556, 572) are pre-existing: the same 4 fail at base d5f05480 in a clean
+  detached worktree (/tmp/tm298/base, node_modules symlinked; unit tests only, so the symlink does not affect them).
+- Contract suite: 3/3 consecutive green runs before this one, after the killEnvServer orphan reap; 1 of 2 runs before it leaked an orphaned
+  tmux server in topology-lead-recovery-tmux (two supervisors starting the first session on a fresh socket at once).
+- Negative check: a test file that detaches `sleep 7` makes the run exit 1 with "pid N: sleep 7" named (tests/unit/suite-leaks.test.mjs covers the helpers).
+- Not run: the AC2 assertion against a services-managed supervisor (doing so would register with the live services).
+
+> @bytedesk/agent-orchestration@0.15.1 test:contract
+> npm run build:check && node --import ./tests/helpers/tmux-preflight.mjs --test tests/contract/*.test.mjs
+
+
+> @bytedesk/agent-orchestration@0.15.1 build:check
+> node scripts/check-bundle.mjs
+
+
+  ..../../../../../../../../tmp/ao-build-check-zAP6cr/host-launcher.cjs  6.4kb
+
+⚡ Done in 13ms
+
+  .../../../../../../../tmp/ao-build-check-zAP6cr/provider-sandbox.cjs  52.0kb
+
+⚡ Done in 47ms
+
+  ..../../../../../../../../tmp/ao-build-check-zAP6cr/nats-client.cjs  546.2kb
+
+⚡ Done in 71ms
+
+  .../../../../../../../../tmp/ao-build-check-zAP6cr/probe-worker.cjs  942.3kb
+
+⚡ Done in 112ms
+
+  ../../../../../../../../../../tmp/ao-build-check-zAP6cr/cli.cjs  2.4mb ⚠️
+
+⚡ Done in 113ms
+
+  ../../../../../../../../../../tmp/ao-build-check-zAP6cr/mcp.cjs  3.0mb ⚠️
+
+⚡ Done in 146ms
+
+  ...../../../../../../tmp/ao-build-check-zAP6cr/claude-agent-acp.mjs  2.2mb ⚠️
+  ..../../../tmp/ao-build-check-zAP6cr/claude-agent-acp.mjs.LEGAL.txt  197b 
+
+⚡ Done in 266ms
+TAP version 13
+# Subtest: tracked install bundle starts from plugin cwd but resolves only explicit consumerCwd
+ok 1 - tracked install bundle starts from plugin cwd but resolves only explicit consumerCwd
+  ---
+  duration_ms: 20594.132014
+  type: 'test'
+  ...
+# Subtest: packed plugin owns its complete design identity and rejects parent inheritance or payload drift
+ok 2 - packed plugin owns its complete design identity and rejects parent inheritance or payload drift
+  ---
+  duration_ms: 1975.737712
+  type: 'test'
+  ...
+# Subtest: Linux networking attaches to the pinned owner after Bubblewrap changes user namespace
+    # Subtest: old PID-based attachment fails once the nested namespace exists
+    ok 1 - old PID-based attachment fails once the nested namespace exists
+      ---
+      duration_ms: 147.521809
+      type: 'test'
+      ...
+    # Subtest: pinned owner attachment retains isolation and host-loopback denial
+    ok 2 - pinned owner attachment retains isolation and host-loopback denial
+      ---
+      duration_ms: 1179.238577
+      type: 'test'
+      ...
+    # Subtest: wrong namespace inode fails before configuration and leaves the child blocked
+    ok 3 - wrong namespace inode fails before configuration and leaves the child blocked
+      ---
+      duration_ms: 167.665609
+      type: 'test'
+      ...
+    1..3
+ok 3 - Linux networking attaches to the pinned owner after Bubblewrap changes user namespace
+  ---
+  duration_ms: 1614.668293
+  type: 'test'
+  ...
+# delayed attachment: net=4026542431, current-user=4026536576, owner-user=4026536574
+# delayed attachment: net=4026536581, current-user=4026536574, owner-user=4026536573
+# delayed attachment: net=4026546080, current-user=4026536573, owner-user=4026536576
+# Subtest: an enrolled repository is activated by an ordinary verb and by a real session start
+ok 4 - an enrolled repository is activated by an ordinary verb and by a real session start
+  ---
+  duration_ms: 7963.477375
+  type: 'test'
+  ...
+# Subtest: an unenrolled repository gets no supervisor from an ordinary verb or a session start
+ok 5 - an unenrolled repository gets no supervisor from an ordinary verb or a session start
+  ---
+  duration_ms: 1449.341745
+  type: 'test'
+  ...
+# Subtest: concurrent activations from linked worktrees leave exactly one supervisor process
+ok 6 - concurrent activations from linked worktrees leave exactly one supervisor process
+  ---
+  duration_ms: 13402.634453
+  type: 'test'
+  ...
+# Subtest: concurrent session starts across linked worktrees converge on one supervisor and one managed lead
+ok 7 - concurrent session starts across linked worktrees converge on one supervisor and one managed lead
+  ---
+  duration_ms: 26348.631987
+  type: 'test'
+  ...
+# Subtest: held mail to an unenrolled destination never starts a lead or a supervisor there
+ok 8 - held mail to an unenrolled destination never starts a lead or a supervisor there
+  ---
+  duration_ms: 23360.222889
+  type: 'test'
+  ...
+# Subtest: a dead managed lead is restarted by its own supervisor, then held cross-repository mail is delivered once
+ok 9 - a dead managed lead is restarted by its own supervisor, then held cross-repository mail is delivered once
+  ---
+  duration_ms: 55192.274064
+  type: 'test'
+  ...
+# Subtest: a live unresponsive lead is left running, unrestarted and unduplicated, while its mail stays held
+ok 10 - a live unresponsive lead is left running, unrestarted and unduplicated, while its mail stays held
+  ---
+  duration_ms: 37738.474739
+  type: 'test'
+  ...
+# Subtest: role icons reach managed panes and title bars; the registered lead wears its icon in a run; ids, names and pane titles stay unchanged; hostile text is inert
+ok 11 - role icons reach managed panes and title bars; the registered lead wears its icon in a run; ids, names and pane titles stay unchanged; hostile text is inert
+  ---
+  duration_ms: 31438.688882
+  type: 'test'
+  ...
+# Subtest: launch → send → wait → status → stop with fake agents in tmux
+ok 12 - launch → send → wait → status → stop with fake agents in tmux
+  ---
+  duration_ms: 30333.615823
+  type: 'test'
+  ...
+# Subtest: a message rung at a deaf pane escalates rather than reporting a delivery
+ok 13 - a message rung at a deaf pane escalates rather than reporting a delivery
+  ---
+  duration_ms: 48456.440117
+  type: 'test'
+  ...
+# Subtest: a pointer stuck in the composer is resubmitted with the submit key alone, never re-typed
+ok 14 - a pointer stuck in the composer is resubmitted with the submit key alone, never re-typed
+  ---
+  duration_ms: 22516.407051
+  type: 'test'
+  ...
+# Subtest: managed shell ignores ambient default-command and an unsignalled timeout is never ready
+ok 15 - managed shell ignores ambient default-command and an unsignalled timeout is never ready
+  ---
+  duration_ms: 2416.303304
+  type: 'test'
+  ...
+# Subtest: observer start commits a v2 attachment only after its own pane acknowledges the current prompt
+ok 16 - observer start commits a v2 attachment only after its own pane acknowledges the current prompt
+  ---
+  duration_ms: 23139.736261
+  type: 'test'
+  ...
+1..16
+# tests 19
+# suites 0
+# pass 19
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 127056.921408

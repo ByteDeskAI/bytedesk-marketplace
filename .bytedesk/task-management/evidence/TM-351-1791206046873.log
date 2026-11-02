@@ -1,0 +1,1 @@
+PR #191 merged. CI green (unit-build-contracts, test-build-install, strict installed-cache, check). standing-mail-ring.test.mjs 7/7 incl. lead-added control-character test; 78 related tests pass. Each test red on revert (worker).

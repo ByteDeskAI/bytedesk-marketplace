@@ -1,0 +1,23 @@
+TM-297 evidence — revision 42b3c55413d9147b55dd1e40bcbe070bc43af5ee (clean tree for agent-orchestration/; tool noise in ../.claude, ../.grok, ../opencode.json not committed)
+== restart tests ==
+ok 1 - agent restart --mode handoff replaces the live session on the promoted prompt and passes the handoff; resume without provider support falls back and says so; agent list flags restart_required
+ok 2 - agent restart --mode resume relaunches resuming the same provider session id, with no handoff
+ok 3 - agent restart never interrupts typed input, and refuses a session the agent does not own
+# tests 3
+# pass 3
+# fail 0
+== base commit d5f05480 with new tests copied in: 3/3 fail (ERR_ASSERTION / ERR_TEST_FAILURE) ==
+== npm run test:unit ==
+not ok 526 - record-landing records an operator landing that governed completion accepts, without merging
+not ok 533 - governed completion accepts a delegated integration record unchanged
+not ok 557 - TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+not ok 573 - TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+# tests 1000
+# pass 992
+# fail 4
+(the 4 failures fail identically on base d5f05480: topology-management.test.mjs)
+== npm run test:contract ==
+# tests 19
+# pass 19
+# fail 0
+build:check exit 0

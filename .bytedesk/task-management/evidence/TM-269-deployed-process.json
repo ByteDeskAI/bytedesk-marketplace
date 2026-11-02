@@ -1,0 +1,7 @@
+{
+  "pid": "1879149",
+  "executable": "/home/ryan/.bytedesk-emote-gateway/bytedesk-emote-gateway",
+  "sha256": "16fe401eb0c8a7f158a46950d81d5ce9741dada66928839c446d98d05cf6cd87",
+  "stagedMatchesProcess": true,
+  "sourceCommit": "28544c4cc749940e714f151a187a3e8fdd9cf29c"
+}

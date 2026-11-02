@@ -1,0 +1,26 @@
+TM-296 evidence @ abb2c7f876cf554818761c0e58ff22a22807f661
+== new tests
+ok 1 - plain-string configs compose byte-identically to the pre-TM-296 golden
+ok 2 - the global prefix composes first, changes the revision, and is ignored with a warning elsewhere
+ok 3 - replace drops the same slot from wider layers at global, repo, role and agent
+ok 4 - validateConfigShape accepts entry objects and names every malformed one
+ok 5 - config layers: get reports the revision, set validates first and refuses a stale revision
+ok 6 - CLI: config get/set/validate, prompt preview --role/--agent, agent set-instructions
+# pass 6
+# fail 0
+== test:unit summary
+not ok 522 - record-landing records an operator landing that governed completion accepts, without merging
+not ok 529 - governed completion accepts a delegated integration record unchanged
+not ok 553 - TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+not ok 569 - TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+# tests 1000
+# pass 992
+# fail 4
+== test:contract summary
+not ok 8 - tests/contract/topology-tmux.test.mjs
+# tests 20
+# pass 19
+# fail 1
+== build:check
+
+⚡ Done in 188ms

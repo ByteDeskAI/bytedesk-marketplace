@@ -8,7 +8,7 @@ title: "agent-orchestration: reviewer collect refuses every base after manage ad
 epic: "EP-029"
 acceptance: [{"text":"manage admit on a reviewed task never widens the base silently; it refuses and names manage rework","done":false},{"text":"reviewer collect accepts a verdict whose revision matches, after a base-widened event (test)","done":false}]
 evidence: []
-commits: []
+commits: ["90a9bd48"]
 blockedBy: ["TM-528"]
 blocks: []
 actor: "main"
@@ -17,7 +17,7 @@ branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
 labels: ["ready-for-agent"]
 triagedBy: "auto"
-updated: "2026-11-01T21:02:38.491Z"
+updated: "2026-11-01T21:02:58.129Z"
 comments: [{"author":"main","ts":"2026-11-01T21:02:36.598Z","text":"Triage (lead fd2b831f): high; sequenced after TM-528, which changes the same admission-base code in management.mjs."}]
 priority: "high"
 touches: ["agent-orchestration/dist","agent-orchestration/tests/unit","agent-orchestration/topology/lib/management.mjs","agent-orchestration/topology/lib/reviewer.mjs"]

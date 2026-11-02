@@ -1,0 +1,73 @@
+ROOT=/tmp/claude-1000/tm429-nzFi0A commit=63458d7c499c06fd557c47574b98b60b99082310 dead/configured port=42385 managed fallback port=46859
++ git init /tmp/claude-1000/tm429-nzFi0A/repo
+lead record /tmp/claude-1000/tm429-nzFi0A/state/leads/c24a01c0673940cd.json
++ tmux -S /tmp/claude-1000/tm429-nzFi0A/tmux/tm429.sock new-session -d -s tm429
+STARTED tmux server pid=388702 socket=/tmp/claude-1000/tm429-nzFi0A/tmux/tm429.sock
+=== tick 1: AO_NATS_URL=nats://127.0.0.1:42385 (dead) ===
++ ao-topology supervise --once --server /tmp/claude-1000/tm429-nzFi0A/tmux/tm429.sock --consumer /tmp/claude-1000/tm429-nzFi0A/repo
+exit=0
+{
+  "transport": {
+    "kind": "nats",
+    "source": "managed-local",
+    "url": "nats://127.0.0.1:46859",
+    "fallback": {
+      "source": "AO_NATS_URL",
+      "url": "nats://127.0.0.1:42385",
+      "error": "CONNECTION_REFUSED"
+    },
+    "outage": {
+      "source": "AO_NATS_URL",
+      "url": "nats://127.0.0.1:42385",
+      "error": "CONNECTION_REFUSED",
+      "since": "2026-10-05T15:31:11.391Z",
+      "last_fallback_at": "2026-10-05T15:31:11.391Z",
+      "recovered_at": null,
+      "holders": {
+        "388762": "2026-10-05T15:31:11.391Z"
+      }
+    },
+    "at": "2026-10-05T15:31:11.391Z"
+  },
+  "nats_outage": {
+    "kind": "outage",
+    "status": "delivered",
+    "to": "lead-1",
+    "message_id": "335e36f47b2a0cecd5c2dedabac21068"
+  }
+}
+STARTED (by ao) managed fallback nats-server pid=389032 port=46859 cmd=/home/ryan/.cache/ao-orch/nats-server -c /tmp/claude-1000/tm429-nzFi0A/nats-home/nats-server.conf 
+--- inbox after tick 1
++ ao-topology mailbox inbox --agent lead-1 --consumer /tmp/claude-1000/tm429-nzFi0A/repo
+{"subject":"NATS outage: nats://127.0.0.1:42385","status":"accepted"}
+=== start JetStream nats-server on 42385 ===
++ nats-server -js -a 127.0.0.1 -p 42385 -sd /tmp/claude-1000/tm429-nzFi0A/js
+STARTED configured broker pid=390556
+=== tick 2 ===
++ ao-topology supervise --once --server /tmp/claude-1000/tm429-nzFi0A/tmux/tm429.sock --consumer /tmp/claude-1000/tm429-nzFi0A/repo
+exit=0
+{"transport":{"source":"AO_NATS_URL","url":"nats://127.0.0.1:42385","outage":{"source":"AO_NATS_URL","url":"nats://127.0.0.1:42385","error":"CONNECTION_REFUSED","since":"2026-10-05T15:31:11.391Z","last_fallback_at":"2026-10-05T15:31:11.895Z","recovered_at":"2026-10-05T15:31:13.388Z","holders":{}}},"nats_outage":{"kind":"recovered","status":"delivered","to":"lead-1","message_id":"a1b477d1a70b37cc58dc4d3f31caf6c4"}}
+=== tick 3 ===
++ ao-topology supervise --once --server /tmp/claude-1000/tm429-nzFi0A/tmux/tm429.sock --consumer /tmp/claude-1000/tm429-nzFi0A/repo
+exit=0
+{"transport":{"source":"AO_NATS_URL","url":"nats://127.0.0.1:42385","outage":{"source":"AO_NATS_URL","url":"nats://127.0.0.1:42385","error":"CONNECTION_REFUSED","since":"2026-10-05T15:31:11.391Z","last_fallback_at":"2026-10-05T15:31:11.895Z","recovered_at":"2026-10-05T15:31:13.388Z","holders":{}}},"nats_outage":null}
+=== tick 4 ===
++ ao-topology supervise --once --server /tmp/claude-1000/tm429-nzFi0A/tmux/tm429.sock --consumer /tmp/claude-1000/tm429-nzFi0A/repo
+exit=0
+{"transport":{"source":"AO_NATS_URL","url":"nats://127.0.0.1:42385","outage":{"source":"AO_NATS_URL","url":"nats://127.0.0.1:42385","error":"CONNECTION_REFUSED","since":"2026-10-05T15:31:11.391Z","last_fallback_at":"2026-10-05T15:31:11.895Z","recovered_at":"2026-10-05T15:31:13.388Z","holders":{}}},"nats_outage":null}
+=== final inbox ===
++ ao-topology mailbox inbox --agent lead-1 --consumer /tmp/claude-1000/tm429-nzFi0A/repo
+{"id":"335e36f47b2a0cecd5c2dedabac21068","subject":"NATS outage: nats://127.0.0.1:42385","from":"ao-supervisor","status":"accepted"}
+{"id":"a1b477d1a70b37cc58dc4d3f31caf6c4","subject":"NATS recovered: nats://127.0.0.1:42385","from":"ao-supervisor","status":"accepted"}
+count=2 outage=1 recovered=1 delivered=0
+=== cleanup: only PIDs started here: broker=390556 fallback=389032 tmux=388702 ===
+pid 390556 stopped
+pid 389032 stopped
+pid 388702 stopped
+leftover procs referencing /tmp/claude-1000/tm429-nzFi0A:
+none
+ROOT=/tmp/claude-1000/tm429-nzFi0A
+=== sender-side standing records (file, no transport) — readStandingMessage under the isolated state root ===
+{"id":"335e36f47b2a0cecd5c2dedabac21068","from":"ao-supervisor","to":"lead-1","status":"delivered"}
+{"id":"a1b477d1a70b37cc58dc4d3f31caf6c4","from":"ao-supervisor","to":"lead-1","status":"delivered"}
+note: 'mailbox inbox' lists receiver receipts filtered to accepted|deferred (standing-mailbox.mjs:375), so it can never print 'delivered'; 'delivered' is the sender-side standing record status (readStandingMessage).

@@ -1,0 +1,6 @@
+["npm","--prefix","agent-orchestration","ci","--no-audit","--no-fund"]
+
+added 154 packages in 5s
+
+npm warn deprecated nats@2.29.3: Package moved. Use @nats-io/transport-node from https://github.com/nats-io/nats.js
+

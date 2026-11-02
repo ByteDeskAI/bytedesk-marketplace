@@ -1,0 +1,4 @@
+PR #227 merged (32733ea7).
+Live: plugin-rsync hook trusted_hash set to sha256:0000 -> one codex exec in a fresh repo -> hash restored to the current value, no TUI. Second codex exec set core.hooksPath=scripts/git-hooks.
+No trust lock or stray plugin-rsync/app-server process left afterwards; a held lock returns "another run is trusting them".
+Tests 22/22.

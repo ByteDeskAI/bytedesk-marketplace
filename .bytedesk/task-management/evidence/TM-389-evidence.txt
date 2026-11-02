@@ -1,0 +1,8 @@
+PR #183 merged 6b9c6621
+# tests 33
+# pass 33
+# fail 0
+full unit suite before review fixes: 1589/1589
+--- plugin-rsync.log
+[2026-10-05T07:07:24-04:00] post-commit 9df355e8: task-management
+[2026-10-05T07:10:26-04:00] post-commit 81ea1211: task-management

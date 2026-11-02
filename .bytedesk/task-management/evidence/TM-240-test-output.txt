@@ -1,0 +1,39 @@
+TM-240 verification — 2026-09-25T14:00:54-04:00
+tree: branch tm/TM-240 on base 25bd49b, uncommitted = the TM-240 diff only (settings.json/opencode.json unrelated, not committed)
+env: worker markers TM_DISPATCH_*/TM_ROOT/TM_SESSION_ID/TM_ACTOR unset; TMUX set (host tmux)
+
+== negative control: governanceMode default reverted to not-applicable ==
+agent-orchestration TM-240 e2e: fail 1 of 1; task-management TM-240 unset-reviewer test: fail 1 (opt-out test pass 1). Restored afterwards.
+
+== task-management tests/unit (node --test --test-concurrency=1) ==
+    # Subtest: a standing reviewer gates dispatch when dispatch.governed is unset (TM-240)
+    ok 10 - a standing reviewer gates dispatch when dispatch.governed is unset (TM-240)
+    # Subtest: an explicit dispatch.governed false dispatches, warns, records the opt-out, and doctor reports it (TM-240)
+    ok 11 - an explicit dispatch.governed false dispatches, warns, records the opt-out, and doctor reports it (TM-240)
+    # Subtest: dispatches from a task-management copy with agent-orchestration absent (TM-240 plugin independence)
+    ok 12 - dispatches from a task-management copy with agent-orchestration absent (TM-240 plugin independence)
+# \# pre-bash inside a worker, binaries that ran: ["node /home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-240-task-management-agent-orchestration-ungoverned-d/task-management/bin/tm-hook pre-bash"]
+# tests 1549
+# pass 1549
+# fail 0
+exit 0
+
+== agent-orchestration tests/unit/topology-*.test.mjs ==
+# Subtest: TM-240: a standing reviewer refuses unadmitted tm dispatch; admit, dispatch, finish yields a reviewable revision
+ok 195 - TM-240: a standing reviewer refuses unadmitted tm dispatch; admit, dispatch, finish yields a reviewable revision
+# Subtest: TM-240: the reviewer accepts an admitted revision from an agent-orchestration copy with task-management absent
+ok 196 - TM-240: the reviewer accepts an admitted revision from an agent-orchestration copy with task-management absent
+not ok 211 - bind adopts a live worker only after verifying it and fails closed on unknown or reused identities
+  location: '/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-240-task-management-agent-orchestration-ungoverned-d/agent-orchestration/tests/unit/topology-management.test.mjs:564:1'
+    fail (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-240-task-management-agent-orchestration-ungoverned-d/agent-orchestration/topology/lib/util.mjs:22:9)
+    invariant (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-240-task-management-agent-orchestration-ungoverned-d/agent-orchestration/topology/lib/util.mjs:26:19)
+    observeAdoptedWorker (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-240-task-management-agent-orchestration-ungoverned-d/agent-orchestration/topology/lib/management.mjs:214:5)
+    async file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-240-task-management-agent-orchestration-ungoverned-d/agent-orchestration/topology/lib/management.mjs:243:28
+    async withLock (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-240-task-management-agent-orchestration-ungoverned-d/agent-orchestration/topology/lib/lockfile.mjs:76:16)
+    async TestContext.<anonymous> (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-240-task-management-agent-orchestration-ungoverned-d/agent-orchestration/tests/unit/topology-management.test.mjs:571:3)
+    async TestContext.<anonymous> (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-240-task-management-agent-orchestration-ungoverned-d/agent-orchestration/tests/unit/topology-management.test.mjs:571:3)
+# tests 510
+# pass 509
+# fail 1
+exit 1
+Known pre-existing failure: 'bind adopts a live worker…' also fails on clean main 25bd49b (fresh worktree, same env, TMUX set: 'implicit server'); unrelated to TM-240.

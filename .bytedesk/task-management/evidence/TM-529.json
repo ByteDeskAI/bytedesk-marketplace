@@ -1,0 +1,352 @@
+{
+  "task": "TM-529",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-10-09T18:07:14.768Z",
+      "owner": "fd2b831f",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-529-regression-240-tm-467-providerdirs-without-a-plu",
+      "branch": "tm/TM-529-regression-240-tm-467-providerdirs-without-a-plu",
+      "base_revision": "3f3fe7ced0f0f6ac5889aff36536ae172ddff7bc",
+      "base_source": "server-tip",
+      "intent": "Fix the #240 regression: providerDirs falls back to the bundled PLUGIN_ROOT providers dir when no pluginRoot is given, so lead probe rings, held-mail rings and reviewer turn-waits load the claude adapter again. Prove it from the built dist on a live lead.",
+      "boundaries": [
+        "agent-orchestration topology/lib/providers.mjs (primary), minimal caller cleanups in lead.mjs, reviewer.mjs, standing-mailbox.mjs, tests, CHANGELOG, dist, ROADMAP-SOURCES.json",
+        "user providers dir stays first (overrides win); no repo-tracked adapter loading (keep TM-467 intent)",
+        "no version bumps; tests follow tmux isolation (TMUX unset, per-test TMUX_TMPDIR, -L socket)"
+      ],
+      "dependencies": [],
+      "checks": [
+        "cd agent-orchestration && npm ci",
+        "env -i PATH=$PATH HOME=$HOME npm run -s test:unit",
+        "npm run -s build && npm run -s build:check",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/ROADMAP-SOURCES.json",
+        "agent-orchestration/dist/cli.cjs",
+        "agent-orchestration/dist/mcp.cjs",
+        "agent-orchestration/tests/unit/topology-lead-probe-stacking.test.mjs",
+        "agent-orchestration/tests/unit/topology-providers.test.mjs",
+        "agent-orchestration/topology/lib/lead.mjs",
+        "agent-orchestration/topology/lib/providers.mjs",
+        "agent-orchestration/topology/lib/reviewer.mjs",
+        "agent-orchestration/topology/lib/standing-mailbox.mjs"
+      ]
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T18:43:13.531Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/257",
+          "agent-orchestration/topology/lib/providers.mjs",
+          "agent-orchestration/tests/unit/provider-dirs-trust.test.mjs",
+          "agent-orchestration/tests/unit/topology-lead-probe-stacking.test.mjs",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs",
+          "agent-orchestration/CHANGELOG.md"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b"
+          },
+          {
+            "name": "agent-orchestration: unit",
+            "command": "sh -c cd agent-orchestration && env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" npm run -s test:unit",
+            "exit_code": 1,
+            "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c cd task-management && env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" node --test tests/unit/*.test.mjs",
+            "exit_code": 1,
+            "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b"
+          },
+          {
+            "name": "plugin-rsync: tests",
+            "command": "sh -c env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" bash plugin-rsync/tests/test-plugin-rsync.sh",
+            "exit_code": 0,
+            "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b"
+          }
+        ],
+        "risks": [
+          "agent-orchestration unit exits 1: 10 failures are pre-existing (identical on parent 3f3fe7ce in a clean worktree); the 11th, 'a pane's liveness and exit status come from one answer', is tmux timing under full-suite load and passes 3/3 in isolation",
+          "task-management unit exits 1 with 41 failures, identical list on parent 3f3fe7ce; no task-management files changed",
+          "Live ring through dist/mcp.cjs itself not exercised (installed MCP server runs main); bundle root resolution verified statically and the live ring ran from source"
+        ],
+        "evidence": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/task-management/evidence/TM-529-evidence.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-10-10T00:09:13.200Z",
+      "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b",
+      "landed": "824e3a0197939a9c3f9f23cdd348a564f0c2c404",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR #257 merged: Independent governed review (faro): APPROVE at the PR head with all required checks host-run clean (AO 1341/0, tm 1704/0, plugin-rsync 50/0). Lead gate review: fallback inside providerDirs, no consumer-derived path, live proof (a lead probe was rung and answered in 4s, releasing held mail); follow-up: pass env at lead.mjs:484.",
+        "policy_auto_merge": true,
+        "at": "2026-10-10T00:09:12.831Z"
+      }
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-10T00:09:14.090Z",
+      "worker": {
+        "name": "agent:TM-529-fd2b831f",
+        "run": "tmux:tm-TM-529",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-09T18:07:17.740Z",
+        "observed_at": "2026-10-09T18:43:13.525Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-529",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$162",
+          "sessionCreated": 1791569237,
+          "paneId": "%229",
+          "panePid": 2162640
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "cleanup",
+      "at": "2026-10-10T00:09:16.394Z",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-529-regression-240-tm-467-providerdirs-without-a-plu",
+      "branch": "tm/TM-529-regression-240-tm-467-providerdirs-without-a-plu",
+      "status": "complete"
+    }
+  ],
+  "updated_at": "2026-10-10T00:09:16.394Z",
+  "integration_branch": null,
+  "base_revision": "3f3fe7ced0f0f6ac5889aff36536ae172ddff7bc",
+  "base_source": "server-tip",
+  "owner": "fd2b831f",
+  "workflow_run_id": "tm-TM-529",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-529-regression-240-tm-467-providerdirs-without-a-plu",
+  "branch": "tm/TM-529-regression-240-tm-467-providerdirs-without-a-plu",
+  "started": true,
+  "state": "cleaned",
+  "worker": {
+    "name": "agent:TM-529-fd2b831f",
+    "run": "tmux:tm-TM-529",
+    "backend": "tmux",
+    "owner": "fd2b831f",
+    "registered_at": "2026-10-09T18:07:17.740Z",
+    "observed_at": "2026-10-09T18:43:13.525Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-529",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$162",
+      "sessionCreated": 1791569237,
+      "paneId": "%229",
+      "panePid": 2162640
+    },
+    "stopped_at": "2026-10-10T00:09:14.090Z"
+  },
+  "finish": {
+    "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b",
+    "artifacts": [
+      "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/257",
+      "agent-orchestration/topology/lib/providers.mjs",
+      "agent-orchestration/tests/unit/provider-dirs-trust.test.mjs",
+      "agent-orchestration/tests/unit/topology-lead-probe-stacking.test.mjs",
+      "agent-orchestration/dist/cli.cjs",
+      "agent-orchestration/dist/mcp.cjs",
+      "agent-orchestration/CHANGELOG.md"
+    ],
+    "checks": [
+      {
+        "name": "agent-orchestration: npm ci",
+        "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+        "exit_code": 0,
+        "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b"
+      },
+      {
+        "name": "agent-orchestration: unit",
+        "command": "sh -c cd agent-orchestration && env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" npm run -s test:unit",
+        "exit_code": 1,
+        "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b"
+      },
+      {
+        "name": "agent-orchestration: build:check",
+        "command": "npm --prefix agent-orchestration run -s build:check",
+        "exit_code": 0,
+        "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b"
+      },
+      {
+        "name": "task-management: unit",
+        "command": "sh -c cd task-management && env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" node --test tests/unit/*.test.mjs",
+        "exit_code": 1,
+        "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b"
+      },
+      {
+        "name": "agent-orchestration: plugin validate",
+        "command": "claude plugin validate ./agent-orchestration",
+        "exit_code": 0,
+        "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b"
+      },
+      {
+        "name": "task-management: plugin validate",
+        "command": "claude plugin validate ./task-management",
+        "exit_code": 0,
+        "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b"
+      },
+      {
+        "name": "plugin-rsync: tests",
+        "command": "sh -c env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" bash plugin-rsync/tests/test-plugin-rsync.sh",
+        "exit_code": 0,
+        "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b"
+      }
+    ],
+    "risks": [
+      "agent-orchestration unit exits 1: 10 failures are pre-existing (identical on parent 3f3fe7ce in a clean worktree); the 11th, 'a pane's liveness and exit status come from one answer', is tmux timing under full-suite load and passes 3/3 in isolation",
+      "task-management unit exits 1 with 41 failures, identical list on parent 3f3fe7ce; no task-management files changed",
+      "Live ring through dist/mcp.cjs itself not exercised (installed MCP server runs main); bundle root resolution verified statically and the live ring ran from source"
+    ],
+    "evidence": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/task-management/evidence/TM-529-evidence.md"
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "3f3fe7ced0f0f6ac5889aff36536ae172ddff7bc",
+    "admitted_base": "3f3fe7ced0f0f6ac5889aff36536ae172ddff7bc",
+    "effective_base": "3f3fe7ced0f0f6ac5889aff36536ae172ddff7bc",
+    "range_note": "The range 3f3fe7ced0f0f6ac5889aff36536ae172ddff7bc..revision starts at the task admission commit.",
+    "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-529-regression-240-tm-467-providerdirs-without-a-plu",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-529-f45a4c86f19fae58f556c3aea777fa1a0c269e9b.patch",
+    "patch_sha256": "ff12d23f1ff9c151d55d7ef55b938b64dcaff6a0c75f1ee0b12a2369de61ab85",
+    "packet_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-529-f45a4c86f19fae58f556c3aea777fa1a0c269e9b.packet",
+    "packet_sha256": "21c078d8028d0a22de12d437db93ea1fe93033ff139016ad1a0b869f181f839e",
+    "checks_unsatisfied": [
+      "agent-orchestration: unit: exited 1 at f45a4c86f19fae58f556c3aea777fa1a0c269e9b",
+      "task-management: unit: exited 1 at f45a4c86f19fae58f556c3aea777fa1a0c269e9b"
+    ],
+    "nonce": "8dc89fd0-3885-441c-98b4-d50054bfbaa4",
+    "task": "TM-529",
+    "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "created_at": "2026-10-09T18:43:16.200Z",
+    "delivery": {
+      "rang": true,
+      "submitted": true,
+      "at": "2026-10-09T18:43:17.500Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-529-f45a4c86f19fae58f556c3aea777fa1a0c269e9b.json"
+  },
+  "review": {
+    "base_revision": "3f3fe7ced0f0f6ac5889aff36536ae172ddff7bc",
+    "admitted_base": "3f3fe7ced0f0f6ac5889aff36536ae172ddff7bc",
+    "effective_base": "3f3fe7ced0f0f6ac5889aff36536ae172ddff7bc",
+    "patch_sha256": "ff12d23f1ff9c151d55d7ef55b938b64dcaff6a0c75f1ee0b12a2369de61ab85",
+    "task": "TM-529",
+    "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "agent-orchestration/topology/lib/providers.mjs",
+        "line": 469,
+        "claim": "`pluginRoot ??= PLUGIN_ROOT` doesn't fall back for an empty string, which then yields the cwd-relative path `providers`.",
+        "evidence": "`pluginRoot ??= PLUGIN_ROOT;` followed by an unconditional push of `join(pluginRoot, \"providers\")`.",
+        "fix": "In a follow-up, use `||=` so any falsy pluginRoot falls back."
+      },
+      {
+        "severity": "note",
+        "file": "agent-orchestration/topology/lib/providers.mjs",
+        "line": 455,
+        "claim": "I reviewed revision f45a4c86 (patch sha256 ff12d23f…), the same patch as requests 8dc89fd0 and 0e3a0d16. provider-dirs-trust.test.mjs is now in the touches, and all required checks pass as host-run results (agent-orchestration unit 1341 and 0, task-management unit 1704 and 0). Criterion 1: providerDirs with no pluginRoot includes the bundled providers/, and a user-dir adapter still overrides it (tested). Criterion 2: ringLeadPane with no pluginRoot loads the claude adapter and rings (tested; the evidence records it failing on parent 3f3fe7ce). Criterion 3: a live `lead status` rang Claude lead fd2b831f and read responsive (task-store evidence TM-529-evidence.md), with the plugin root verified from source and both dist bundles. The fix sits at the root, in providerDirs, so every caller that omits pluginRoot is covered."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "request_nonce": "c2c4d78c-eccf-445f-b25f-17c9a008294b",
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b",
+    "created_at": "2026-10-09T23:40:03.506Z"
+  },
+  "merge": {
+    "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b",
+    "landed": "824e3a0197939a9c3f9f23cdd348a564f0c2c404",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "f45a4c86f19fae58f556c3aea777fa1a0c269e9b",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR #257 merged: Independent governed review (faro): APPROVE at the PR head with all required checks host-run clean (AO 1341/0, tm 1704/0, plugin-rsync 50/0). Lead gate review: fallback inside providerDirs, no consumer-derived path, live proof (a lead probe was rung and answered in 4s, releasing held mail); follow-up: pass env at lead.mjs:484.",
+      "policy_auto_merge": true,
+      "at": "2026-10-10T00:09:12.831Z"
+    }
+  }
+}

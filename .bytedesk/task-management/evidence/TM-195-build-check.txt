@@ -1,0 +1,29 @@
+
+> @bytedesk/agent-orchestration@0.15.1 build:check
+> node scripts/check-bundle.mjs
+
+
+  ..../../../../../../../../tmp/ao-build-check-miGi58/host-launcher.cjs  6.4kb
+
+⚡ Done in 12ms
+
+  .../../../../../../../tmp/ao-build-check-miGi58/provider-sandbox.cjs  52.0kb
+
+⚡ Done in 34ms
+
+  .../../../../../../../../tmp/ao-build-check-miGi58/probe-worker.cjs  942.3kb
+
+⚡ Done in 96ms
+
+  ../../../../../../../../../../tmp/ao-build-check-miGi58/cli.cjs  2.3mb ⚠️
+
+⚡ Done in 110ms
+
+  ../../../../../../../../../../tmp/ao-build-check-miGi58/mcp.cjs  2.8mb ⚠️
+
+⚡ Done in 120ms
+
+  ...../../../../../../tmp/ao-build-check-miGi58/claude-agent-acp.mjs  2.2mb ⚠️
+  ..../../../tmp/ao-build-check-miGi58/claude-agent-acp.mjs.LEGAL.txt  197b 
+
+⚡ Done in 186ms

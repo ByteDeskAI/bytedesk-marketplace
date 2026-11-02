@@ -1,0 +1,370 @@
+{
+  "task": "TM-513",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-10-09T05:13:38.548Z",
+      "owner": "fd2b831f",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-513-plugin-rsync-auto-pull-sync-copies-other-session",
+      "branch": "tm/TM-513-plugin-rsync-auto-pull-sync-copies-other-session",
+      "base_revision": "77c05462c8ee3dd156182a365ad02433cf916afd",
+      "base_source": "server-tip",
+      "intent": "TM-513: make the TM-510 auto-pull safe for a shared checkout. Sync plugins from HEAD (or skip with a log line) so uncommitted edits never reach the caches; add dirty-tree tests that fail without the guards; stamp the throttle after success; time out the fetch; pull only the registered marketplace checkout.",
+      "boundaries": [
+        "scripts/git-hooks/sync-plugins, plugin-rsync/hooks/*, plugin-rsync/tests/*, plugin-rsync/CHANGELOG.md",
+        "no agent-orchestration or task-management edits",
+        "tests use temp HOME, temp origin and clone; never touch the real main checkout or ~/.claude caches"
+      ],
+      "dependencies": [],
+      "checks": [
+        "bash plugin-rsync/tests/test-pull-marketplace.sh",
+        "bash plugin-rsync/tests/test-plugin-rsync.sh",
+        "claude plugin validate ./plugin-rsync"
+      ],
+      "files": [
+        "plugin-rsync/CHANGELOG.md",
+        "plugin-rsync/hooks/ensure-hookspath.sh",
+        "plugin-rsync/hooks/pull-marketplace.sh",
+        "plugin-rsync/tests/test-pull-marketplace.sh",
+        "scripts/git-hooks/sync-plugins"
+      ]
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T05:38:52.685Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "ea9760f71d42649328d6c9f76dde979251718cc1",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/247",
+          "scripts/git-hooks/sync-plugins",
+          "plugin-rsync/hooks/pull-marketplace.sh",
+          "plugin-rsync/hooks/ensure-hookspath.sh",
+          "plugin-rsync/tests/test-pull-marketplace.sh"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "ea9760f71d42649328d6c9f76dde979251718cc1"
+          },
+          {
+            "name": "agent-orchestration: unit",
+            "command": "sh -c cd agent-orchestration && env -u ... npm run -s test:unit",
+            "exit_code": 0,
+            "revision": "ea9760f71d42649328d6c9f76dde979251718cc1"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "ea9760f71d42649328d6c9f76dde979251718cc1"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c cd task-management && env -u ... node --test tests/unit/*.test.mjs (as configured)",
+            "exit_code": 1,
+            "revision": "ea9760f71d42649328d6c9f76dde979251718cc1"
+          },
+          {
+            "name": "task-management: unit (with -u TM_SESSION_ID)",
+            "command": "cd task-management && env -u TM_SESSION_ID -u ... node --test tests/unit/*.test.mjs",
+            "exit_code": 0,
+            "revision": "ea9760f71d42649328d6c9f76dde979251718cc1"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "ea9760f71d42649328d6c9f76dde979251718cc1"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "ea9760f71d42649328d6c9f76dde979251718cc1"
+          },
+          {
+            "name": "plugin-rsync: tests",
+            "command": "bash plugin-rsync/tests/test-plugin-rsync.sh",
+            "exit_code": 0,
+            "revision": "ea9760f71d42649328d6c9f76dde979251718cc1"
+          },
+          {
+            "name": "plugin-rsync: pull-marketplace tests",
+            "command": "bash plugin-rsync/tests/test-pull-marketplace.sh",
+            "exit_code": 0,
+            "revision": "ea9760f71d42649328d6c9f76dde979251718cc1"
+          }
+        ],
+        "risks": [
+          "The configured task-management unit check exits 1 in a dispatched session: TM_SESSION_ID leaks the lead id into actor tests (9/1677). Unrelated to this diff (no task-management files changed); passes 1677/1677 with TM_SESSION_ID unset. Filed as a separate task.",
+          "A plugin with uncommitted changes is not synced until a later sync touches it with a clean tree."
+        ],
+        "evidence": "/tmp/TM-513-evidence.txt"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-10-09T07:03:26.972Z",
+      "revision": "ea9760f71d42649328d6c9f76dde979251718cc1",
+      "landed": "25af751d2cc462fa0565406bb2f5f3b678369a21",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "ea9760f71d42649328d6c9f76dde979251718cc1",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR #247 merged at 25af751d; faro APPROVE at ea9760f with all 7 required checks clean (lead-run), review-246 delta APPROVE",
+        "policy_auto_merge": true,
+        "at": "2026-10-09T07:03:26.541Z"
+      }
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-09T07:03:27.895Z",
+      "worker": {
+        "name": "agent:TM-513-fd2b831f",
+        "run": "tmux:tm-TM-513",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-09T05:13:41.933Z",
+        "observed_at": "2026-10-09T05:38:52.677Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-513",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$148",
+          "sessionCreated": 1791522821,
+          "paneId": "%212",
+          "panePid": 507008
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "cleanup",
+      "at": "2026-10-09T07:03:30.222Z",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-513-plugin-rsync-auto-pull-sync-copies-other-session",
+      "branch": "tm/TM-513-plugin-rsync-auto-pull-sync-copies-other-session",
+      "status": "complete"
+    }
+  ],
+  "updated_at": "2026-10-09T07:03:30.222Z",
+  "integration_branch": null,
+  "base_revision": "77c05462c8ee3dd156182a365ad02433cf916afd",
+  "base_source": "server-tip",
+  "owner": "fd2b831f",
+  "workflow_run_id": "tm-TM-513",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-513-plugin-rsync-auto-pull-sync-copies-other-session",
+  "branch": "tm/TM-513-plugin-rsync-auto-pull-sync-copies-other-session",
+  "started": true,
+  "state": "cleaned",
+  "worker": {
+    "name": "agent:TM-513-fd2b831f",
+    "run": "tmux:tm-TM-513",
+    "backend": "tmux",
+    "owner": "fd2b831f",
+    "registered_at": "2026-10-09T05:13:41.933Z",
+    "observed_at": "2026-10-09T05:38:52.677Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-513",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$148",
+      "sessionCreated": 1791522821,
+      "paneId": "%212",
+      "panePid": 507008
+    },
+    "stopped_at": "2026-10-09T07:03:27.895Z"
+  },
+  "finish": {
+    "revision": "ea9760f71d42649328d6c9f76dde979251718cc1",
+    "artifacts": [
+      "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/247",
+      "scripts/git-hooks/sync-plugins",
+      "plugin-rsync/hooks/pull-marketplace.sh",
+      "plugin-rsync/hooks/ensure-hookspath.sh",
+      "plugin-rsync/tests/test-pull-marketplace.sh"
+    ],
+    "checks": [
+      {
+        "name": "agent-orchestration: npm ci",
+        "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+        "exit_code": 0,
+        "revision": "ea9760f71d42649328d6c9f76dde979251718cc1"
+      },
+      {
+        "name": "agent-orchestration: unit",
+        "command": "sh -c cd agent-orchestration && env -u ... npm run -s test:unit",
+        "exit_code": 0,
+        "revision": "ea9760f71d42649328d6c9f76dde979251718cc1"
+      },
+      {
+        "name": "agent-orchestration: build:check",
+        "command": "npm --prefix agent-orchestration run -s build:check",
+        "exit_code": 0,
+        "revision": "ea9760f71d42649328d6c9f76dde979251718cc1"
+      },
+      {
+        "name": "task-management: unit",
+        "command": "sh -c cd task-management && env -u ... node --test tests/unit/*.test.mjs (as configured)",
+        "exit_code": 1,
+        "revision": "ea9760f71d42649328d6c9f76dde979251718cc1"
+      },
+      {
+        "name": "task-management: unit (with -u TM_SESSION_ID)",
+        "command": "cd task-management && env -u TM_SESSION_ID -u ... node --test tests/unit/*.test.mjs",
+        "exit_code": 0,
+        "revision": "ea9760f71d42649328d6c9f76dde979251718cc1"
+      },
+      {
+        "name": "agent-orchestration: plugin validate",
+        "command": "claude plugin validate ./agent-orchestration",
+        "exit_code": 0,
+        "revision": "ea9760f71d42649328d6c9f76dde979251718cc1"
+      },
+      {
+        "name": "task-management: plugin validate",
+        "command": "claude plugin validate ./task-management",
+        "exit_code": 0,
+        "revision": "ea9760f71d42649328d6c9f76dde979251718cc1"
+      },
+      {
+        "name": "plugin-rsync: tests",
+        "command": "bash plugin-rsync/tests/test-plugin-rsync.sh",
+        "exit_code": 0,
+        "revision": "ea9760f71d42649328d6c9f76dde979251718cc1"
+      },
+      {
+        "name": "plugin-rsync: pull-marketplace tests",
+        "command": "bash plugin-rsync/tests/test-pull-marketplace.sh",
+        "exit_code": 0,
+        "revision": "ea9760f71d42649328d6c9f76dde979251718cc1"
+      }
+    ],
+    "risks": [
+      "The configured task-management unit check exits 1 in a dispatched session: TM_SESSION_ID leaks the lead id into actor tests (9/1677). Unrelated to this diff (no task-management files changed); passes 1677/1677 with TM_SESSION_ID unset. Filed as a separate task.",
+      "A plugin with uncommitted changes is not synced until a later sync touches it with a clean tree."
+    ],
+    "evidence": "/tmp/TM-513-evidence.txt"
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "77c05462c8ee3dd156182a365ad02433cf916afd",
+    "admitted_base": "77c05462c8ee3dd156182a365ad02433cf916afd",
+    "effective_base": "77c05462c8ee3dd156182a365ad02433cf916afd",
+    "range_note": "The range 77c05462c8ee3dd156182a365ad02433cf916afd..revision starts at the task admission commit.",
+    "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-513-plugin-rsync-auto-pull-sync-copies-other-session",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-513-ea9760f71d42649328d6c9f76dde979251718cc1.patch",
+    "patch_sha256": "5412a9f25c892581ea2935859fce39f672adb25319325fec324c76055892f579",
+    "packet_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-513-ea9760f71d42649328d6c9f76dde979251718cc1.packet",
+    "packet_sha256": "9b56fc8fb4121def93ed584452a1d2610ed1971eb77519fcbbaaadccd9fcfc45",
+    "checks_unsatisfied": [
+      "task-management: unit: exited 1 at ea9760f71d42649328d6c9f76dde979251718cc1"
+    ],
+    "nonce": "7e9bbada-52cd-4650-b8f9-2f1c7ca3ad71",
+    "task": "TM-513",
+    "revision": "ea9760f71d42649328d6c9f76dde979251718cc1",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "created_at": "2026-10-09T05:38:55.091Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-10-09T05:38:55.630Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-513-ea9760f71d42649328d6c9f76dde979251718cc1.json"
+  },
+  "review": {
+    "base_revision": "77c05462c8ee3dd156182a365ad02433cf916afd",
+    "admitted_base": "77c05462c8ee3dd156182a365ad02433cf916afd",
+    "effective_base": "77c05462c8ee3dd156182a365ad02433cf916afd",
+    "patch_sha256": "5412a9f25c892581ea2935859fce39f672adb25319325fec324c76055892f579",
+    "task": "TM-513",
+    "revision": "ea9760f71d42649328d6c9f76dde979251718cc1",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "scripts/git-hooks/sync-plugins",
+        "line": 185,
+        "claim": "A skipped dirty plugin catches up only when a later sync touches that plugin again, so its caches can stay stale indefinitely, recorded only in a log line.",
+        "evidence": "The skip `continue`s with a log entry, and nothing re-queues the plugin.",
+        "fix": "In a follow-up, record skipped plugins and include them in the next sync once their tree is clean, or name the manual remedy in the log line."
+      },
+      {
+        "severity": "minor",
+        "file": "plugin-rsync/hooks/pull-marketplace.sh",
+        "line": 100,
+        "claim": "A permanently failing pull is retried and logged at every session start, with no throttle.",
+        "evidence": "`touch \"$stamp\"` happens only on success. Failures append to plugin-rsync.log every time.",
+        "fix": "In a follow-up, throttle failures with a shorter, separate failure stamp."
+      },
+      {
+        "severity": "note",
+        "file": "plugin-rsync/README.md",
+        "line": 50,
+        "claim": "I reviewed revision ea9760f7 (patch sha256 5412a9f2…), the same patch as requests 7e9bbada and b6b08c06. plugin-rsync/README.md is now in the touches, and all seven required checks are satisfied with host-run results. All three criteria are met. A dirty touched plugin is skipped and logged, and the test proves it never reaches the cache. The dirty-file pull test would fail without the --ff-only protection. The stamp is written only after success, the fetch has a 60 s timeout, failures are logged to .git/plugin-rsync.log, and only the registered directory-source checkout is pulled (others are setup-only)."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "request_nonce": "64d21a37-5c34-4351-86b9-2dc278992895",
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "ea9760f71d42649328d6c9f76dde979251718cc1",
+    "created_at": "2026-10-09T06:00:42.742Z"
+  },
+  "merge": {
+    "revision": "ea9760f71d42649328d6c9f76dde979251718cc1",
+    "landed": "25af751d2cc462fa0565406bb2f5f3b678369a21",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "ea9760f71d42649328d6c9f76dde979251718cc1",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR #247 merged at 25af751d; faro APPROVE at ea9760f with all 7 required checks clean (lead-run), review-246 delta APPROVE",
+      "policy_auto_merge": true,
+      "at": "2026-10-09T07:03:26.541Z"
+    }
+  }
+}

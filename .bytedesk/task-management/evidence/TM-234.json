@@ -1,0 +1,445 @@
+{
+  "task": "TM-234",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-09-24T21:57:17.651Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-234-agent-orchestration-operator-granted-standing-de",
+      "branch": "tm/TM-234-agent-orchestration-operator-granted-standing-de",
+      "intent": "Operator-granted standing delegation (delegate grant/list/revoke) lets the lead authorize manage integrate and record-landing with an attributed, scoped, expiring grant.",
+      "boundaries": [
+        "agent-orchestration management/cli/new delegation module, tests, dist, docs, CHANGELOG",
+        "grant never covers push/deploy/publish/spend",
+        "governedCompletion unchanged",
+        "no push/PR/merge by worker"
+      ],
+      "dependencies": [],
+      "checks": [
+        "cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs",
+        "cd agent-orchestration && npm run -s build:check",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/dist",
+        "agent-orchestration/docs/repository-leads.md",
+        "agent-orchestration/tests/unit",
+        "agent-orchestration/topology/cli.mjs",
+        "agent-orchestration/topology/lib/delegation.mjs",
+        "agent-orchestration/topology/lib/management.mjs"
+      ]
+    },
+    {
+      "event": "worker-started",
+      "at": "2026-09-24T21:57:27.895Z",
+      "backend": "tmux",
+      "run": "tmux:tm-TM-234",
+      "workflow_run_id": "tm-TM-234"
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-09-24T21:57:28.259Z",
+      "worker": {
+        "name": "agent:TM-234-1b07de2e",
+        "run": "tmux:tm-TM-234",
+        "backend": "tmux",
+        "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+        "registered_at": "2026-09-24T21:57:27.882Z",
+        "observed_at": "2026-09-24T21:57:28.254Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-234",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 25595,
+          "sessionId": "$380",
+          "sessionCreated": 1790287047,
+          "paneId": "%726",
+          "panePid": 194914
+        }
+      },
+      "workflow_run_id": "tm-TM-234"
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-24T22:26:09.409Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "report": {
+        "revision": "8f5530a12bddae5ba3ff5d366f054e598b35c921",
+        "artifacts": [
+          "agent-orchestration/topology/lib/delegation.mjs",
+          "agent-orchestration/topology/lib/management.mjs",
+          "agent-orchestration/topology/cli.mjs",
+          "agent-orchestration/tests/unit/topology-delegation.test.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "agent-orchestration/docs/repository-leads.md",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs",
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/124"
+        ],
+        "checks": [
+          "cd agent-orchestration && env -u TMUX -u TM_DISPATCH_WORKER -u TM_DISPATCH_BRANCH -u TM_DISPATCH_TASK -u AO_AGENT_ID node --test --test-concurrency=1 tests/unit/*.test.mjs: 738 pass, 0 fail, 4 skipped",
+          "cd agent-orchestration && npm run -s build && npm run -s build:check: pass",
+          "claude plugin validate ./agent-orchestration: pass (expected versionless-plugin advisory only)",
+          "manual ao-topology CLI smoke test (delegate grant/list/revoke, all refusal paths): pass"
+        ],
+        "risks": [],
+        "evidence": ".bytedesk/task-management/evidence/TM-234-VERIFY.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-09-25T18:01:32.270Z",
+      "worker": {
+        "name": "agent:TM-234-1b07de2e",
+        "run": "tmux:tm-TM-234",
+        "backend": "tmux",
+        "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+        "registered_at": "2026-09-24T21:57:27.882Z",
+        "observed_at": "2026-09-24T21:57:28.254Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-234",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 25595,
+          "sessionId": "$380",
+          "sessionCreated": 1790287047,
+          "paneId": "%726",
+          "panePid": 194914
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-25T18:10:09.367Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "report": {
+        "revision": "2edd178e9824dd4fa90c88fa57d7ca721db36f22",
+        "artifacts": [
+          "agent-orchestration/topology/lib/delegation.mjs",
+          "agent-orchestration/topology/lib/management.mjs",
+          "agent-orchestration/topology/cli.mjs",
+          "agent-orchestration/tests/unit/topology-delegation.test.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "agent-orchestration/docs/repository-leads.md",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs"
+        ],
+        "checks": [
+          "node --test tests/unit/topology-delegation.test.mjs: 10/10 pass",
+          "node --test tests/unit/topology-*.test.mjs: 519/520 pass; the one failure (bind adopts a live worker) also fails on untouched 8f5530a and depends on the live tmux environment",
+          "npm run build:check: exit 0",
+          "claude plugin validate ./agent-orchestration: passed, expected 'No version specified' warning only",
+          "CLI smoke: delegate grant from an agent shell refused TOPOLOGY_DELEGATION_OPERATOR_ONLY; with a clean env and no TTY refused TOPOLOGY_DELEGATION_TTY"
+        ],
+        "evidence": "Review round 1 (Faro, 8f5530a) findings addressed. Finding 1: grant needs an interactive TTY plus a typed confirmation of '<grantee> <scopes>'. grant and revoke refuse AO_AGENT_ID, TM_SESSION_ID, CLAUDECODE, CLAUDE_CODE_*, CODEX_* and a tmux pane the census binds to an agent. Grants record channel evidence and an assurance field stating a same-OS-user agent is NOT excluded. Events are HMAC-signed (mode-600 key), and integrate/record-landing refuse a file with any unsigned, edited or evidence-less event. Finding 2: under a delegation, authorization.actor = grantee (the caller's AO_AGENT_ID), with delegated_by and delegation_id alongside. A differing --actor is refused with TOPOLOGY_DELEGATION_ACTOR in both integrate and record-landing, and tests assert both.",
+        "risks": [
+          "A deliberate agent running as the same OS user can still forge a grant: it can unset the markers, drive a pty (script or tmux send-keys) and read the mode-600 key. This is documented and recorded in each grant's assurance field. Full exclusion needs a different-uid key holder or the session-host capability channel, which is out of scope here.",
+          "Round-1 grant records (no mac or channel) are now refused. Any existing delegations file must be re-granted.",
+          "Toward the approved plan-approval work: record-landing no longer needs --actor under a delegation, so refusing --actor inside managed sessions later is a one-line change."
+        ]
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-25T18:13:28.046Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "report": {
+        "revision": "92bb318d8c3a9fb8db1d84cec2f9de3e7f8a2de1",
+        "artifacts": [
+          "agent-orchestration/topology/lib/delegation.mjs",
+          "agent-orchestration/topology/lib/management.mjs",
+          "agent-orchestration/topology/cli.mjs",
+          "agent-orchestration/tests/unit/topology-delegation.test.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "agent-orchestration/docs/repository-leads.md",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs"
+        ],
+        "checks": [
+          "node --test tests/unit/topology-delegation.test.mjs: 11/11 pass",
+          "node --test tests/unit/topology-*.test.mjs: 520/521 pass; the one failure ('bind adopts a live worker') also fails on untouched 8f5530a and passes with env -u TMUX -u TMUX_PANE, so it is an artifact of the live tmux environment",
+          "npm run build:check: exit 0",
+          "claude plugin validate ./agent-orchestration: passed, with only the expected 'No version specified' warning",
+          "Live check: delegate grant run with env -i from inside this Claude Code session was refused with TOPOLOGY_DELEGATION_OPERATOR_ONLY (agent ancestor ~/.local/share/claude/versions/2.1.280)"
+        ],
+        "evidence": "Addresses Faro's round-1 review of 8f5530a. The lead (d60f0608) narrowed the fix. FINDING 1 (grant channel): grant refuses any agent marker (AO_AGENT_ID, TM_SESSION_ID, CLAUDECODE, CLAUDE_CODE_*, CODEX_*), a Claude Code or Codex ancestor process, and a tmux pane the census binds to an agent. It also requires an interactive TTY and a typed confirmation '<grantee> <scopes>'. revoke has the same refusals, without the confirmation. The grant records the checks it passed as channel evidence: kind 'interactive-same-user', agent_proof false, and a note that it is not agent-proof against a same-uid agent, which can drive a TTY through tmux or script. integrate and record-landing refuse a delegations file holding any grant without that evidence. HMAC signing was deliberately dropped: the key would be readable by the same uid, so a signature added nothing and would have looked like proof. repository-leads.md says all of this and names a different-uid grant store or a session-host capability channel as future work. That architecture decision belongs to the marketplace lead and the operator. FINDING 2 (actor): under a delegation, authorization.actor is the grantee (the caller's AO_AGENT_ID), with delegated_by and delegation_id alongside. integrate and record-landing refuse an --actor that differs from the grantee (TOPOLOGY_DELEGATION_ACTOR), and tests assert both.",
+        "risks": [
+          "NOT agent-proof against a same-OS-user agent. Such an agent can unset the markers, start a shell outside its own process tree, drive a TTY through tmux or script, or write the delegations file directly with copied evidence fields. The checks stop ordinary-path use only. This is stated in every grant and in the docs.",
+          "Grants made by round-1 code carry no channel evidence and are now refused, so any existing grant must be re-granted.",
+          "Toward the approved plan-approval work: record-landing no longer needs --actor under a delegation, so refusing --actor inside managed sessions later is a one-line change."
+        ]
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-27T02:51:24.133Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "report": {
+        "revision": "4d2974ad08888207f7021bd6959c0f90ee5f0535",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/124",
+          "agent-orchestration/topology/lib/delegation.mjs",
+          "agent-orchestration/topology/lib/management.mjs",
+          "agent-orchestration/topology/lib/slots.mjs",
+          "agent-orchestration/tests/unit/topology-delegation.test.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs"
+        ],
+        "checks": [
+          "cd agent-orchestration && env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs: exit 0 — 766 tests, 762 pass, 0 fail (lead, after merging origin/main 9d80bda)",
+          "npm run -s build:check: exit 0",
+          "spoof tests fail with requireGranteeCaller disabled (worker mutation check)"
+        ],
+        "risks": [
+          "A same-user process that can type into the lead's own pane passes as the lead (stated in code comment).",
+          "Pane proof relies on the repository census only, not the enrollment record."
+        ],
+        "evidence": "Round-2 fixes for Faro findings at 92bb318 (a8d3afb): major — requireGranteeCaller proves the caller's live pane is census-bound to the grantee, inside findActiveDelegation used by integrate, record-landing and eligibility (TOPOLOGY_DELEGATION_ACTOR); minor — TOPOLOGY_DELEGATION_INTEGRITY/ACTOR become eligibility reasons; nit — grant refuses unknown grantee (TOPOLOGY_DELEGATION_GRANTEE); note — governedCompletion delegated-record test. Then merged origin/main 9d80bda (dist-only conflicts, rebuilt)."
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-27T03:00:15.654Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "report": {
+        "revision": "6d02f9595994cf24715f8ac9c8a8443dd8bb9a34",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/124",
+          "agent-orchestration/topology/lib/delegation.mjs",
+          "agent-orchestration/topology/lib/management.mjs",
+          "agent-orchestration/topology/lib/slots.mjs",
+          "agent-orchestration/tests/unit/topology-delegation.test.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs",
+          "agent-orchestration/topology/lib/slots.mjs"
+        ],
+        "checks": [
+          "cd agent-orchestration && env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs: exit 0 — 768 tests, 764 pass, 0 fail, 4 skipped (worker)",
+          "lead re-ran topology-delegation + topology-management: 46 tests, 46 pass, 0 fail",
+          "npm run -s build:check: exit 0 (worker and lead)",
+          "rule-1: both attack tests accepted the spoof on 4d2974a lib code (Missing expected rejection), refused with this code",
+          "live: callerRunsInPane true for the lead's own pane pid, false for Faro's pane pid 1948865"
+        ],
+        "risks": [
+          "Remaining same-uid limit: ptrace/code injection into the lead's process tree, or a process started by typing into the lead's pane.",
+          "No pane start time is recorded anywhere, so pid reuse is excluded by ordering (list-panes before the ancestry walk; an ancestor alive at walk time is unique), not by start-time comparison.",
+          "Non-Linux or unreadable /proc fails closed."
+        ],
+        "evidence": "Round 3 for Faro at 4d2974a: callerRunsInPane (slots.mjs) walks /proc ppid chain to binding.panePid; requireGranteeCaller refuses TOPOLOGY_DELEGATION_ACTOR on no live pane, census pane_pid mismatch, non-grantee binding, unreadable /proc, or non-ancestor. Env vars alone no longer pass."
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-27T03:05:11.002Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "report": {
+        "revision": "a219445ec21002f0b13a99aab019d447fffc6264",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/124",
+          "agent-orchestration/topology/lib/delegation.mjs",
+          "agent-orchestration/topology/lib/management.mjs",
+          "agent-orchestration/topology/lib/slots.mjs",
+          "agent-orchestration/tests/unit/topology-delegation.test.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs",
+          "agent-orchestration/topology/lib/slots.mjs",
+          "agent-orchestration/docs/repository-leads.md"
+        ],
+        "checks": [
+          "cd agent-orchestration && env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs: exit 0 — 773 tests, 769 pass, 0 fail (lead, after merging main 537b5db)",
+          "npm run -s build:check: exit 0 (lead)"
+        ],
+        "risks": [
+          "Remaining same-uid limit: ptrace/code injection into the lead's process tree, or a process started by typing into the lead's pane.",
+          "No pane start time is recorded anywhere, so pid reuse is excluded by ordering (list-panes before the ancestry walk; an ancestor alive at walk time is unique), not by start-time comparison.",
+          "Non-Linux or unreadable /proc fails closed."
+        ],
+        "evidence": "Faro approved 6d02f95. This head only merges main 537b5db (PR 128; dist-only conflicts, rebuilt) and adds the docs line for Faro's minor: standing delegation needs pane-ancestry proof and is Linux-only (fails closed without /proc, e.g. macOS)."
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-09-27T03:13:04.374Z",
+      "revision": "a219445ec21002f0b13a99aab019d447fffc6264",
+      "landed": "6fbd8a459d763b0fb58b165e0e99f16303ba2c97",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "a219445ec21002f0b13a99aab019d447fffc6264",
+        "channel": "recorded-landing",
+        "reason": "PR 124 merged at Faro-approved head a219445 with CI 7/7 green (ADR-0023)",
+        "policy_auto_merge": true,
+        "at": "2026-09-27T03:13:04.374Z"
+      }
+    }
+  ],
+  "updated_at": "2026-09-27T03:13:04.374Z",
+  "base_revision": "9a65052ee20cde632fc5654aa8f1f66bd83a1e1c",
+  "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+  "workflow_run_id": "tm-TM-234",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-234-agent-orchestration-operator-granted-standing-de",
+  "branch": "tm/TM-234-agent-orchestration-operator-granted-standing-de",
+  "started": true,
+  "state": "merged",
+  "worker": {
+    "name": "agent:TM-234-1b07de2e",
+    "run": "tmux:tm-TM-234",
+    "backend": "tmux",
+    "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+    "registered_at": "2026-09-24T21:57:27.882Z",
+    "observed_at": "2026-09-24T21:57:28.254Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-234",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 25595,
+      "sessionId": "$380",
+      "sessionCreated": 1790287047,
+      "paneId": "%726",
+      "panePid": 194914
+    },
+    "stopped_at": "2026-09-25T18:01:32.270Z"
+  },
+  "finish": {
+    "revision": "a219445ec21002f0b13a99aab019d447fffc6264",
+    "artifacts": [
+      "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/124",
+      "agent-orchestration/topology/lib/delegation.mjs",
+      "agent-orchestration/topology/lib/management.mjs",
+      "agent-orchestration/topology/lib/slots.mjs",
+      "agent-orchestration/tests/unit/topology-delegation.test.mjs",
+      "agent-orchestration/tests/unit/topology-management.test.mjs",
+      "agent-orchestration/CHANGELOG.md",
+      "agent-orchestration/dist/cli.cjs",
+      "agent-orchestration/dist/mcp.cjs",
+      "agent-orchestration/topology/lib/slots.mjs",
+      "agent-orchestration/docs/repository-leads.md"
+    ],
+    "checks": [
+      "cd agent-orchestration && env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs: exit 0 — 773 tests, 769 pass, 0 fail (lead, after merging main 537b5db)",
+      "npm run -s build:check: exit 0 (lead)"
+    ],
+    "risks": [
+      "Remaining same-uid limit: ptrace/code injection into the lead's process tree, or a process started by typing into the lead's pane.",
+      "No pane start time is recorded anywhere, so pid reuse is excluded by ordering (list-panes before the ancestry walk; an ancestor alive at walk time is unique), not by start-time comparison.",
+      "Non-Linux or unreadable /proc fails closed."
+    ],
+    "evidence": "Faro approved 6d02f95. This head only merges main 537b5db (PR 128; dist-only conflicts, rebuilt) and adds the docs line for Faro's minor: standing delegation needs pane-ancestry proof and is Linux-only (fails closed without /proc, e.g. macOS)."
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "537b5db2a6dfcd10a6240af188dcd25f39507fba",
+    "admitted_base": "9a65052ee20cde632fc5654aa8f1f66bd83a1e1c",
+    "effective_base": "537b5db2a6dfcd10a6240af188dcd25f39507fba",
+    "range_note": "The range 537b5db2a6dfcd10a6240af188dcd25f39507fba..revision excludes code already on the default branch at 537b5db2a6dfcd10a6240af188dcd25f39507fba; the task was admitted at 9a65052ee20cde632fc5654aa8f1f66bd83a1e1c and later merged the default branch. Judge only this task's own changes.",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-234-a219445ec21002f0b13a99aab019d447fffc6264.patch",
+    "patch_sha256": "897561fa83b56de0db967ef245e8a8e00fb0383a94c513f346090ffb8f3682c8",
+    "nonce": "21286733-024b-4de1-91ef-951a44a5ae9d",
+    "task": "TM-234",
+    "revision": "a219445ec21002f0b13a99aab019d447fffc6264",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 58433,
+      "sessionId": "$60",
+      "sessionCreated": 1790387813,
+      "paneId": "%60",
+      "panePid": 1948865
+    },
+    "author_agent_ids": [
+      "1b07de2e-6b73-47c6-ad14-aa29eeea67fd"
+    ],
+    "created_at": "2026-09-27T03:05:12.667Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-09-27T03:05:13.205Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-234-a219445ec21002f0b13a99aab019d447fffc6264.json"
+  },
+  "review": {
+    "base_revision": "537b5db2a6dfcd10a6240af188dcd25f39507fba",
+    "admitted_base": "9a65052ee20cde632fc5654aa8f1f66bd83a1e1c",
+    "effective_base": "537b5db2a6dfcd10a6240af188dcd25f39507fba",
+    "patch_sha256": "897561fa83b56de0db967ef245e8a8e00fb0383a94c513f346090ffb8f3682c8",
+    "task": "TM-234",
+    "revision": "a219445ec21002f0b13a99aab019d447fffc6264",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "nit",
+        "file": "agent-orchestration/docs/repository-leads.md",
+        "line": 354,
+        "claim": "The paragraph after the new 'Remaining limit' bullet starts with a single leading space and no blank line, so Markdown lazy-continues it into that bullet. The description of the merge record (authorization.actor, delegated_by, delegation_id) then renders as part of the same-user-limit bullet.",
+        "evidence": "' The merge record then carries authorization.authorized: true, with' follows the '- Remaining limit.' bullet directly, with no blank line.",
+        "fix": "Insert a blank line before that paragraph and drop the leading space."
+      },
+      {
+        "severity": "note",
+        "file": "agent-orchestration/docs/repository-leads.md",
+        "line": 346,
+        "claim": "The minor from 6d02f95 is resolved. The docs now state that the ancestry proof needs Linux /proc, that it fails closed elsewhere (macOS) with the message it gives, and that --authorized from an operator shell is the path there. The remaining same-user limit is also stated. The code and tests match 6d02f95, so that approval's reasoning carries over. The range (effective base 537b5db) holds only TM-234's own files, and the request includes no test output."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 58433,
+      "sessionId": "$60",
+      "sessionCreated": 1790387813,
+      "paneId": "%60",
+      "panePid": 1948865
+    },
+    "request_nonce": "21286733-024b-4de1-91ef-951a44a5ae9d",
+    "author_agent_ids": [
+      "1b07de2e-6b73-47c6-ad14-aa29eeea67fd"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "a219445ec21002f0b13a99aab019d447fffc6264",
+    "created_at": "2026-09-27T03:05:52.162Z"
+  },
+  "merge": {
+    "revision": "a219445ec21002f0b13a99aab019d447fffc6264",
+    "landed": "6fbd8a459d763b0fb58b165e0e99f16303ba2c97",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "a219445ec21002f0b13a99aab019d447fffc6264",
+      "channel": "recorded-landing",
+      "reason": "PR 124 merged at Faro-approved head a219445 with CI 7/7 green (ADR-0023)",
+      "policy_auto_merge": true,
+      "at": "2026-09-27T03:13:04.374Z"
+    }
+  }
+}

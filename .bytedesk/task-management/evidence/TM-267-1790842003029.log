@@ -1,0 +1,4 @@
+Implementation: Marketplace PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/141, reviewed head f0cbd1d86a8148eca05b3d8dc5104dc05ac55b03.
+Real isolated NATS regressions: 5/5 passed (/tmp/goal-feedback-nats-final.log), covering installed payload without node_modules, durable acceptance before ACK, crash replay, held publication recovery, and uncertain publication after dedup expiry. Earlier combined original transport/new receipt run: 7/7.
+Mailbox/receipt focused tests: 41/41; nondestructive console inspection and independent API/MCP review passed. AO full unit: 884 passed, 4 existing skips. Clean installed-cache contract after final gate fix: 1/1 executed, 0 skips (/tmp/goal-feedback-clean-gates-final.log).
+Publication, accepted receipt and recipient disposition remain separate; none grants task ownership or goal success. Live standing-lead pickup is tracked separately.

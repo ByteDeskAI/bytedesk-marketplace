@@ -1,0 +1,261 @@
+{
+  "task": "TM-241",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-09-25T14:51:14.376Z",
+      "owner": "fd2b831f",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-241-agent-orchestration-a-review-range-over-8-mib-fa",
+      "branch": "tm/TM-241-agent-orchestration-a-review-range-over-8-mib-fa",
+      "intent": "Let a review range over 8 MiB produce a reviewable request by streaming the patch or representing binary files as a hashed manifest, and make diff failures name their real cause.",
+      "boundaries": [
+        "agent-orchestration: topology/lib/reviewer.mjs (trustedReviewRange and request patch writing), topology/lib/util.mjs run() cap only if needed, reviewer prompt text, tests/unit, dist, CHANGELOG",
+        "patch_sha256 must still bind exactly what the reviewer receives",
+        "do not change admission requirements (that is TM-240)",
+        "do not touch the incomplete-verdict idle logic (that is TM-217)",
+        "no version field added to any Claude plugin manifest",
+        "worker pushes only its own branch and opens a PR; humans merge"
+      ],
+      "dependencies": [],
+      "checks": [
+        "cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs",
+        "cd agent-orchestration && npm run -s build:check",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/dist",
+        "agent-orchestration/tests/unit",
+        "agent-orchestration/topology/lib/reviewer.mjs",
+        "agent-orchestration/topology/lib/util.mjs"
+      ]
+    },
+    {
+      "event": "worker-started",
+      "at": "2026-09-25T14:51:15.466Z",
+      "backend": "tmux",
+      "run": "tmux:tm-TM-241",
+      "workflow_run_id": "tm-TM-241"
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-09-25T14:51:15.864Z",
+      "worker": {
+        "name": "agent:TM-241-fd2b831f",
+        "run": "tmux:tm-TM-241",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-09-25T14:51:15.448Z",
+        "observed_at": "2026-09-25T14:51:15.857Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-241",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 25595,
+          "sessionId": "$482",
+          "sessionCreated": 1790347875,
+          "paneId": "%936",
+          "panePid": 2764199
+        }
+      },
+      "workflow_run_id": "tm-TM-241"
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-25T15:03:05.865Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "44e9fd4998554e99aeeb3468e39609fbd8f6236e",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/128"
+        ],
+        "checks": [
+          "env -u TMUX node --test --test-concurrency=1 tests/unit/topology-reviewer.test.mjs: 18/18 pass",
+          "env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs: 676/689 pass (9 pre-existing failures reproduced identically at baseline 25bd49b)",
+          "claude plugin validate ./agent-orchestration: passes with expected version advisory only"
+        ],
+        "risks": [
+          "npm run -s build:check not run: node_modules not installed in this worktree; dist/ shows no diff from this change"
+        ],
+        "evidence": ".bytedesk/task-management/evidence/TM-241-topology-reviewer-test-output.txt"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-09-25T17:52:52.575Z",
+      "worker": {
+        "name": "agent:TM-241-fd2b831f",
+        "run": "tmux:tm-TM-241",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-09-25T14:51:15.448Z",
+        "observed_at": "2026-09-25T14:51:15.857Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-241",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 25595,
+          "sessionId": "$482",
+          "sessionCreated": 1790347875,
+          "paneId": "%936",
+          "panePid": 2764199
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-25T18:00:03.525Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "b3c9ba70c08f35215af7b738e85b89c8603e90a9",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/128",
+          "agent-orchestration/topology/lib/reviewer.mjs",
+          "agent-orchestration/topology/lib/util.mjs",
+          "agent-orchestration/tests/unit/topology-reviewer.test.mjs",
+          "agent-orchestration/prompts/reviewer.md",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs"
+        ],
+        "checks": [
+          "cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs: exit 0 — 740 tests: 736 pass, 0 fail, 4 skipped",
+          "cd agent-orchestration && npm run -s build:check: exit 0 — bundle matches source after npm ci (real node_modules) + npm run build",
+          "claude plugin validate ./agent-orchestration: exit 0 — passed; only the expected 'No version specified' warning"
+        ],
+        "risks": [
+          "Finding 2 premise corrected: git 2.43 --binary widens the index line only for binary files, so adding --full-index would have CHANGED text-only hashes; left out, and a test pins text-only patch_sha256 to the legacy --binary diff. Ranges containing binary files hash differently than before (CHANGELOG says to re-request)."
+        ],
+        "evidence": "Round-2 fixes for Faro findings 1-5 on 44e9fd4: dist regenerated, text-only hash preserved (tested), streamed blob hashing with path/size refusal (tested via git shim), missing revision named (tested), reviewer.md explains the manifest. No cross-plugin imports, no version fields added."
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-27T02:12:53.252Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "386da2509e71e9aa36cbfc5bc2f9cff015733040",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/128",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs"
+        ],
+        "checks": [
+          "npm run -s build:check: exit 0 after rebuilding dist over the merge of origin/main 8b26684 (real node_modules, not a symlink)",
+          "TMUX= node --test --test-concurrency=1 tests/unit/topology-management.test.mjs: 25 pass, 0 fail (same on clean origin/main; with inherited TMUX test 23 fails on both — environment, not this change)",
+          "node --test tests/unit/topology-reviewer*.test.mjs: pass"
+        ],
+        "risks": [
+          "Merge-only revision: conflicts were confined to generated dist bundles, resolved by rebuild. No source change beyond what main brought in. b3c9ba7 was approved by Faro; this head must be re-reviewed."
+        ],
+        "evidence": "Merged origin/main (PR 129 + PR 123) into the approved b3c9ba7 to clear PR 128 conflicts; rebuilt dist; build:check exit 0."
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-27T02:53:32.577Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "a7c5196cad7a78c85577136845b54d61e7d3ec70",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/128",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs"
+        ],
+        "checks": [
+          "cd agent-orchestration && env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs: exit 0 — 754 tests, 750 pass, 0 fail, 4 skipped (merge worker); lead re-ran reviewer+management: 55 pass 0 fail",
+          "npm run -s build:check: exit 0 (worker and lead)",
+          "claude plugin validate ./agent-orchestration: exit 0, expected warning only"
+        ],
+        "risks": [
+          "Merge of origin/main 9d80bda (TM-257/258) resolved by hand in reviewer.mjs trustedReviewRange: TM-241 large-range and binary-manifest handling now runs on the effective base from reviewRangeBase. Pre-TM-257 landed-review hash check still uses a --binary patch on purpose (old records were --binary; identical for text-only ranges)."
+        ],
+        "evidence": "TM-241 code (Faro-approved at b3c9ba7) re-applied on main 9d80bda; git diff 9d80bda..HEAD is the same 6 files, +332/-33, as TM-241's own 8b26684..386da25."
+      },
+      "state": "ready-for-review"
+    }
+  ],
+  "updated_at": "2026-09-27T02:53:32.577Z",
+  "base_revision": "25bd49bcb4f621eff4215030152b846e0e71b6f1",
+  "owner": "fd2b831f",
+  "workflow_run_id": "tm-TM-241",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-241-agent-orchestration-a-review-range-over-8-mib-fa",
+  "branch": "tm/TM-241-agent-orchestration-a-review-range-over-8-mib-fa",
+  "started": true,
+  "state": "ready-for-review",
+  "worker": {
+    "name": "agent:TM-241-fd2b831f",
+    "run": "tmux:tm-TM-241",
+    "backend": "tmux",
+    "owner": "fd2b831f",
+    "registered_at": "2026-09-25T14:51:15.448Z",
+    "observed_at": "2026-09-25T14:51:15.857Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-241",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 25595,
+      "sessionId": "$482",
+      "sessionCreated": 1790347875,
+      "paneId": "%936",
+      "panePid": 2764199
+    },
+    "stopped_at": "2026-09-25T17:52:52.575Z"
+  },
+  "finish": {
+    "revision": "a7c5196cad7a78c85577136845b54d61e7d3ec70",
+    "artifacts": [
+      "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/128",
+      "agent-orchestration/dist/cli.cjs",
+      "agent-orchestration/dist/mcp.cjs"
+    ],
+    "checks": [
+      "cd agent-orchestration && env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs: exit 0 — 754 tests, 750 pass, 0 fail, 4 skipped (merge worker); lead re-ran reviewer+management: 55 pass 0 fail",
+      "npm run -s build:check: exit 0 (worker and lead)",
+      "claude plugin validate ./agent-orchestration: exit 0, expected warning only"
+    ],
+    "risks": [
+      "Merge of origin/main 9d80bda (TM-257/258) resolved by hand in reviewer.mjs trustedReviewRange: TM-241 large-range and binary-manifest handling now runs on the effective base from reviewRangeBase. Pre-TM-257 landed-review hash check still uses a --binary patch on purpose (old records were --binary; identical for text-only ranges)."
+    ],
+    "evidence": "TM-241 code (Faro-approved at b3c9ba7) re-applied on main 9d80bda; git diff 9d80bda..HEAD is the same 6 files, +332/-33, as TM-241's own 8b26684..386da25."
+  },
+  "collected": false,
+  "review_request": {
+    "base_revision": "9d80bdaf35413ac20837e95a8bd88049981f36a5",
+    "admitted_base": "25bd49bcb4f621eff4215030152b846e0e71b6f1",
+    "effective_base": "9d80bdaf35413ac20837e95a8bd88049981f36a5",
+    "range_note": "The range 9d80bdaf35413ac20837e95a8bd88049981f36a5..revision excludes code already on the default branch at 9d80bdaf35413ac20837e95a8bd88049981f36a5; the task was admitted at 25bd49bcb4f621eff4215030152b846e0e71b6f1 and later merged the default branch. Judge only this task's own changes.",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-241-a7c5196cad7a78c85577136845b54d61e7d3ec70.patch",
+    "patch_sha256": "9fb1367dac5fcf72439fc4f7cbe8c285b2c32d5d80d72819bef4554920306f82",
+    "nonce": "a3e4b636-0c69-4f0e-ac1a-be099a2f8228",
+    "task": "TM-241",
+    "revision": "a7c5196cad7a78c85577136845b54d61e7d3ec70",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 58433,
+      "sessionId": "$60",
+      "sessionCreated": 1790387813,
+      "paneId": "%60",
+      "panePid": 1948865
+    },
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "created_at": "2026-09-27T02:53:34.100Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-09-27T02:53:34.633Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-241-a7c5196cad7a78c85577136845b54d61e7d3ec70.json"
+  }
+}

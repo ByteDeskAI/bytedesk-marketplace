@@ -1,0 +1,832 @@
+{
+  "task": "TM-485",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-10-08T23:36:26.553Z",
+      "owner": "fd2b831f",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-485-plugin-rsync-host-copies-non-ao-directory-can-be",
+      "branch": "tm/TM-485-plugin-rsync-host-copies-non-ao-directory-can-be",
+      "base_revision": "44b030d48cf931703eebf08253a5ea6e0c212f5c",
+      "base_source": "server-tip",
+      "intent": "plugin-rsync trust scope: trust only hooks from this marketplace's own plugin cache (source/sourcePath/command path), never auto-trust 'modified' hooks; drop fix-grok-installs from plugin-rsync-mcp; resolve codex/grok from trusted absolute paths with cwd=plugin root and reduced env; honour CODEX_HOME for the lock; race-free stale-lock reclaim; host-copies looksLikeCopy checks the package name and refreshes same-version different-build copies; Grok repair limited to the bytedesk marketplace and --trust only if originally trusted (TM-485 incl. PR #227/#149/#188 review findings).",
+      "boundaries": [
+        "plugin-rsync/ (bin/plugin-rsync, bin/plugin-rsync-mcp, .codex-mcp.json, tests, CHANGELOG)",
+        "agent-orchestration/src/services/host-copies.mjs and its test only",
+        "no edits to agent-orchestration topology/lib, task-management, or any real ~/.codex ~/.claude ~/.grok during tests",
+        "no version fields in plugin.json or marketplace.json"
+      ],
+      "dependencies": [],
+      "checks": [
+        "bash plugin-rsync/tests/test-plugin-rsync.sh (temp HOME and CODEX_HOME)",
+        "node plugin-rsync/tests/test-classify.mjs",
+        "cd agent-orchestration && npm run -s test:unit with TMUX, TMUX_PANE and AO_SESSION_* unset",
+        "claude plugin validate ./plugin-rsync",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/src/services/host-copies.mjs",
+        "agent-orchestration/tests/unit",
+        "plugin-rsync/.codex-mcp.json",
+        "plugin-rsync/CHANGELOG.md",
+        "plugin-rsync/bin/plugin-rsync",
+        "plugin-rsync/bin/plugin-rsync-mcp",
+        "plugin-rsync/tests"
+      ]
+    },
+    {
+      "event": "worker-started",
+      "at": "2026-10-08T23:36:36.387Z",
+      "backend": "tmux",
+      "run": "tmux:tm-TM-485",
+      "workflow_run_id": "tm-TM-485"
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-08T23:36:37.071Z",
+      "worker": {
+        "name": "agent:TM-485-fd2b831f",
+        "run": "tmux:tm-TM-485",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-08T23:36:36.361Z",
+        "observed_at": "2026-10-08T23:36:37.063Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-485",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$124",
+          "sessionCreated": 1791502596,
+          "paneId": "%172",
+          "panePid": 1403564
+        }
+      },
+      "workflow_run_id": "tm-TM-485"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T01:09:53.123Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "45d2963cf194dc8ff4ca8363273d8c4b8f35cbfa",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/232",
+          "/tmp/tm485/TM-485-evidence.md"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "45d2963cf194dc8ff4ca8363273d8c4b8f35cbfa"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "45d2963cf194dc8ff4ca8363273d8c4b8f35cbfa"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "45d2963cf194dc8ff4ca8363273d8c4b8f35cbfa"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "45d2963cf194dc8ff4ca8363273d8c4b8f35cbfa"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c 'cd task-management && node --test tests/unit/*.test.mjs'",
+            "exit_code": 1,
+            "revision": "45d2963cf194dc8ff4ca8363273d8c4b8f35cbfa",
+            "log_tail": "pass 1620 fail 16; identical 16 fail at parent 44b030d4 in a clean worktree"
+          },
+          {
+            "name": "agent-orchestration: unit (changed-code files)",
+            "command": "sh -c 'cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/setup-self-heal.test.mjs tests/unit/install-host.test.mjs'",
+            "exit_code": 0,
+            "revision": "45d2963cf194dc8ff4ca8363273d8c4b8f35cbfa"
+          },
+          {
+            "name": "plugin-rsync: tests",
+            "command": "bash plugin-rsync/tests/test-plugin-rsync.sh",
+            "exit_code": 0,
+            "revision": "45d2963cf194dc8ff4ca8363273d8c4b8f35cbfa"
+          }
+        ],
+        "risks": [
+          "agent-orchestration: unit (full required check) did not complete: tests/unit/mcp-contract.test.mjs never exits, also at parent 44b030d4 in a clean worktree (TM-491); without it the run was stopped at 1 h with 3 failures in files that do not import the changed code",
+          "task-management: unit exits 1 with 16 failures that are identical at the parent commit; task-management is untouched",
+          "Grok has no per-plugin trust flag; 'trusted' is inferred as not trusted:false and not in config.toml [plugins].disabled"
+        ],
+        "evidence": "/tmp/tm485/TM-485-evidence.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T01:09:57.162Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "45d2963cf194dc8ff4ca8363273d8c4b8f35cbfa",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/232",
+          "/tmp/tm485/TM-485-evidence.md"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "45d2963cf194dc8ff4ca8363273d8c4b8f35cbfa"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "45d2963cf194dc8ff4ca8363273d8c4b8f35cbfa"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "45d2963cf194dc8ff4ca8363273d8c4b8f35cbfa"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "45d2963cf194dc8ff4ca8363273d8c4b8f35cbfa"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c 'cd task-management && node --test tests/unit/*.test.mjs'",
+            "exit_code": 1,
+            "revision": "45d2963cf194dc8ff4ca8363273d8c4b8f35cbfa",
+            "log_tail": "pass 1620 fail 16; identical 16 fail at parent 44b030d4 in a clean worktree"
+          },
+          {
+            "name": "agent-orchestration: unit (changed-code files)",
+            "command": "sh -c 'cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/setup-self-heal.test.mjs tests/unit/install-host.test.mjs'",
+            "exit_code": 0,
+            "revision": "45d2963cf194dc8ff4ca8363273d8c4b8f35cbfa"
+          },
+          {
+            "name": "plugin-rsync: tests",
+            "command": "bash plugin-rsync/tests/test-plugin-rsync.sh",
+            "exit_code": 0,
+            "revision": "45d2963cf194dc8ff4ca8363273d8c4b8f35cbfa"
+          }
+        ],
+        "risks": [
+          "agent-orchestration: unit (full required check) did not complete: tests/unit/mcp-contract.test.mjs never exits, also at parent 44b030d4 in a clean worktree (TM-491); without it the run was stopped at 1 h with 3 failures in files that do not import the changed code",
+          "task-management: unit exits 1 with 16 failures that are identical at the parent commit; task-management is untouched",
+          "Grok has no per-plugin trust flag; 'trusted' is inferred as not trusted:false and not in config.toml [plugins].disabled"
+        ],
+        "evidence": "/tmp/tm485/TM-485-evidence.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T01:16:16.545Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "3df30083370dd21b24f6a862fa7d01031041fd80",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/232",
+          "/tmp/tm485/TM-485-evidence-r2.md"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "3df30083370dd21b24f6a862fa7d01031041fd80"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "3df30083370dd21b24f6a862fa7d01031041fd80"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "3df30083370dd21b24f6a862fa7d01031041fd80"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "3df30083370dd21b24f6a862fa7d01031041fd80"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c 'cd task-management && node --test tests/unit/*.test.mjs'",
+            "exit_code": 1,
+            "revision": "3df30083370dd21b24f6a862fa7d01031041fd80",
+            "log_tail": "pass 1620 fail 16; the same 16 test names fail at parent 44b030d4 in a clean worktree"
+          },
+          {
+            "name": "agent-orchestration: unit (changed-code files)",
+            "command": "sh -c 'cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/setup-self-heal.test.mjs tests/unit/install-host.test.mjs'",
+            "exit_code": 0,
+            "revision": "3df30083370dd21b24f6a862fa7d01031041fd80"
+          },
+          {
+            "name": "plugin-rsync: tests",
+            "command": "bash plugin-rsync/tests/test-plugin-rsync.sh",
+            "exit_code": 0,
+            "revision": "3df30083370dd21b24f6a862fa7d01031041fd80"
+          },
+          {
+            "name": "plugin-rsync: plugin validate",
+            "command": "claude plugin validate ./plugin-rsync",
+            "exit_code": 0,
+            "revision": "3df30083370dd21b24f6a862fa7d01031041fd80"
+          }
+        ],
+        "risks": [
+          "agent-orchestration: unit (full required check) did not complete: tests/unit/mcp-contract.test.mjs never exits, also at parent 44b030d4 in a clean worktree (TM-491)",
+          "task-management: unit exits 1 with 16 failures identical to the parent commit; task-management is untouched",
+          "Grok keeps no per-plugin trust flag; trusted is inferred as not trusted:false and not in config.toml [plugins].disabled",
+          "The stale-lock race is fixed by rename-aside but not reproduced by a test"
+        ],
+        "evidence": "/tmp/tm485/TM-485-evidence-r2.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-retired",
+      "at": "2026-10-09T05:05:56.432Z",
+      "worker": {
+        "name": "agent:TM-485-fd2b831f",
+        "run": "tmux:tm-TM-485",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-08T23:36:36.361Z",
+        "observed_at": "2026-10-08T23:36:37.063Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-485",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$124",
+          "sessionCreated": 1791502596,
+          "paneId": "%172",
+          "panePid": 1403564
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false,
+      "result": {
+        "outcome": "exited-without-finish",
+        "reason": "worker ended (task parked) without a finish report"
+      },
+      "collected": {
+        "ok": true,
+        "pending": false,
+        "duplicate": true,
+        "outcome": "failed",
+        "skipped": "tmux:tm-TM-485 was already collected (failed); nothing to collect"
+      },
+      "recovery": "Start a successor with ao-topology manage start-worker --task TM-485; the admission, base revision and worktree are unchanged."
+    },
+    {
+      "event": "rework",
+      "at": "2026-10-09T05:06:05.949Z",
+      "owner": "fd2b831f",
+      "revision": "3df30083370dd21b24f6a862fa7d01031041fd80",
+      "review": {
+        "reviewer_id": "c164bf8b",
+        "verdict": "changes_requested",
+        "created_at": "2026-10-09T04:44:42.012Z",
+        "request_nonce": "964fb319-64b7-433b-af5b-529a7f20707a",
+        "findings": [
+          {
+            "severity": "major",
+            "file": "agent-orchestration/src/services/host-copies.mjs",
+            "line": 49,
+            "claim": "Criterion 1 is half met. Its second clause, 'same-version different-build copies are refreshed behind the same gates', is not implemented. keepBuild still answers 'same version and build ordinal, different build; not overwritten' and the copy is only reported, which is exactly the TM-284 gap the task names (host-copies.mjs:153). The only host-copies change is the looksLikeCopy name check.",
+            "evidence": "The host-copies.mjs hunk changes only looksLikeCopy (lines 52-55). keepBuild's `a === b ? \"same version and build ordinal, different build; not overwritten\"` (line 49) is unchanged context. No test refreshes a same-version, different-build copy.",
+            "fix": "Refresh a same-version copy whose fingerprint or build differs from the services' build, under the same gates as a version upgrade (package name, no newer build, no live writer). Add a test where a same-version copy with a different fingerprint is replaced, and one with a newer build is kept."
+          },
+          {
+            "severity": "major",
+            "file": "agent-orchestration/CHANGELOG.md",
+            "line": 9,
+            "claim": "Three changed files are outside the approved scope: agent-orchestration/CHANGELOG.md, agent-orchestration/dist/cli.cjs and agent-orchestration/dist/mcp.cjs. The integration gate's file-scope check will refuse them. They are needed, though: changing src/services/host-copies.mjs requires a dist rebuild and a CHANGELOG entry.",
+            "evidence": "packet files.txt lists all three. task.md 'Touches' lists agent-orchestration/src/services/host-copies.mjs and tests/unit only.",
+            "fix": "Ask the lead to add agent-orchestration/CHANGELOG.md and agent-orchestration/dist to TM-485's touches, and keep the changes."
+          },
+          {
+            "severity": "major",
+            "file": "plugin-rsync/tests/test-plugin-rsync.sh",
+            "line": 494,
+            "claim": "No required check has any evidence, and the tests that carry criteria 2 and 3 are not in the required set at all. The required checks cover agent-orchestration and task-management only. Nothing shows that test-plugin-rsync.sh, which holds every new Grok and Codex trust test, ran at this revision.",
+            "evidence": "The request's `checks_unsatisfied` lists all six required checks as 'no evidence'. checks.json `required` has no plugin-rsync entry. The new tests are at test-plugin-rsync.sh:494-598.",
+            "fix": "Attach the six required checks run at this revision with the current argv (#239), plus a structured run of `bash plugin-rsync/tests/test-plugin-rsync.sh`. Ask the lead to add the plugin-rsync suite to the required checks for tasks that touch plugin-rsync."
+          },
+          {
+            "severity": "minor",
+            "file": "plugin-rsync/bin/plugin-rsync",
+            "line": 237,
+            "claim": "acquireLock narrows the stale-lock race but doesn't close it. Run A stats the lock and finds it stale. Run B then renames it aside and creates a fresh lock. A's renameSync then moves B's fresh lock aside and removes it, A takes the lock, and both runs proceed.",
+            "evidence": "The stat-then-rename sequence at lines 237-241 doesn't check that the lock being renamed is the stale one that was stat'ed (by inode or mtime).",
+            "fix": "After renaming aside, re-stat the moved directory and only remove it if it is still stale. Otherwise rename it back, or treat the attempt as busy."
+          },
+          {
+            "severity": "minor",
+            "file": "plugin-rsync/bin/plugin-rsync",
+            "line": 294,
+            "claim": "A `modified` hook is compared with source only for the hooks file and the scripts its command names directly. A hook script that sources or execs another file in the plugin root can change that file, and the hook is still trusted.",
+            "evidence": "trustableHook compares `[file, ...paths.map(real)]` with source. Other files under the plugin root are not compared.",
+            "fix": "For `modified`, compare the whole cached plugin root (or its hooks directory) with source, or document the limit in the CHANGELOG."
+          },
+          {
+            "severity": "note",
+            "file": "plugin-rsync/bin/plugin-rsync-mcp",
+            "line": 15,
+            "claim": "The import of `reducedEnv` from the extensionless `./plugin-rsync` script is safe from side effects, because main() runs only behind `isMain` (plugin-rsync:712-713). Loading an extensionless file as ESM depends on Node's module detection, which the MCP test exercises, but no check evidence for that test is attached. Criterion 2's Grok trust inference (no `trusted:false`, not in `[plugins].disabled` means trusted) is a reasonable reading for this Grok and is documented. Criterion 3 is broadly met: marketplace provenance, plugin source and cache path, a command confined to the plugin root with no shell syntax, absolute-PATH binaries, plugin-root cwd, reduced env, CODEX_HOME for the lock, and no fix-grok-installs from the MCP server."
+          }
+        ]
+      }
+    },
+    {
+      "event": "worker-started",
+      "at": "2026-10-09T05:06:25.523Z",
+      "backend": "tmux",
+      "run": "tmux:tm-TM-485",
+      "workflow_run_id": "tm-TM-485"
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-09T05:06:26.643Z",
+      "worker": {
+        "name": "agent:TM-485-fd2b831f",
+        "run": "tmux:tm-TM-485",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-08T23:36:36.361Z",
+        "observed_at": "2026-10-09T05:06:26.634Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-485",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$147",
+          "sessionCreated": 1791522384,
+          "paneId": "%207",
+          "panePid": 4082451
+        }
+      },
+      "workflow_run_id": "tm-TM-485"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T05:31:53.237Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/232",
+          "/tmp/tm485-r3/TM-485-evidence-r3.md"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+          },
+          {
+            "name": "agent-orchestration: unit",
+            "command": "sh -c 'cd agent-orchestration && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID npm run -s test:unit'",
+            "exit_code": 1,
+            "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+            "log_tail": "pass 1284 fail 9; the same 9 test names fail at origin/main in a clean worktree (pass 1283 fail 9)"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c 'cd task-management && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u TM_NTFY_TOPIC -u TM_NTFY_TOKEN node --test tests/unit/*.test.mjs'",
+            "exit_code": 1,
+            "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+            "log_tail": "pass 1662 fail 15; identical failures at origin/main; task-management unchanged by this branch"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+          },
+          {
+            "name": "plugin-rsync: plugin validate",
+            "command": "claude plugin validate ./plugin-rsync",
+            "exit_code": 0,
+            "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+          },
+          {
+            "name": "plugin-rsync: tests",
+            "command": "bash plugin-rsync/tests/test-plugin-rsync.sh",
+            "exit_code": 0,
+            "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+            "log_tail": "50 passed, 0 failed"
+          },
+          {
+            "name": "plugin-rsync: classify",
+            "command": "node plugin-rsync/tests/test-classify.mjs",
+            "exit_code": 0,
+            "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+          }
+        ],
+        "risks": [
+          "agent-orchestration unit and task-management unit exit 1 with failures identical by name at origin/main; not caused by this branch",
+          "agent-orchestration/CHANGELOG.md and dist/ are outside the recorded touches; lead asked to widen them",
+          "The rename-aside reclaim race is closed by owner tokens, but the exact two-process interleaving is not reproduced by a test; release ownership is",
+          "Grok keeps no per-plugin trust flag; trusted is inferred as not trusted:false and not in config.toml [plugins].disabled"
+        ],
+        "evidence": "/tmp/tm485-r3/TM-485-evidence-r3.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T05:32:02.378Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/232",
+          "/tmp/tm485-r3/TM-485-evidence-r3.md"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+          },
+          {
+            "name": "agent-orchestration: unit",
+            "command": "sh -c 'cd agent-orchestration && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID npm run -s test:unit'",
+            "exit_code": 1,
+            "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+            "log_tail": "pass 1284 fail 9; the same 9 test names fail at origin/main in a clean worktree (pass 1283 fail 9)"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c 'cd task-management && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u TM_NTFY_TOPIC -u TM_NTFY_TOKEN node --test tests/unit/*.test.mjs'",
+            "exit_code": 1,
+            "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+            "log_tail": "pass 1662 fail 15; identical failures at origin/main; task-management unchanged by this branch"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+          },
+          {
+            "name": "plugin-rsync: plugin validate",
+            "command": "claude plugin validate ./plugin-rsync",
+            "exit_code": 0,
+            "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+          },
+          {
+            "name": "plugin-rsync: tests",
+            "command": "bash plugin-rsync/tests/test-plugin-rsync.sh",
+            "exit_code": 0,
+            "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+            "log_tail": "50 passed, 0 failed"
+          },
+          {
+            "name": "plugin-rsync: classify",
+            "command": "node plugin-rsync/tests/test-classify.mjs",
+            "exit_code": 0,
+            "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+          }
+        ],
+        "risks": [
+          "agent-orchestration unit and task-management unit exit 1 with failures identical by name at origin/main; not caused by this branch",
+          "agent-orchestration/CHANGELOG.md and dist/ are outside the recorded touches; lead asked to widen them",
+          "The rename-aside reclaim race is closed by owner tokens, but the exact two-process interleaving is not reproduced by a test; release ownership is",
+          "Grok keeps no per-plugin trust flag; trusted is inferred as not trusted:false and not in config.toml [plugins].disabled"
+        ],
+        "evidence": "/tmp/tm485-r3/TM-485-evidence-r3.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-10-09T06:02:52.388Z",
+      "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+      "landed": "912f5fe36c584204d4c16802a4b9d9336596f0c0",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR #232 merged: faro APPROVE at 2cbe08a9 (synced at 2fe6972d, PR hunks verified), review-232 APPROVE, CI green",
+        "policy_auto_merge": true,
+        "at": "2026-10-09T06:02:51.873Z"
+      }
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-09T06:02:53.325Z",
+      "worker": {
+        "name": "agent:TM-485-fd2b831f",
+        "run": "tmux:tm-TM-485",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-08T23:36:36.361Z",
+        "observed_at": "2026-10-09T05:06:26.634Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-485",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$147",
+          "sessionCreated": 1791522384,
+          "paneId": "%207",
+          "panePid": 4082451
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "cleanup",
+      "at": "2026-10-09T06:02:55.787Z",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-485-plugin-rsync-host-copies-non-ao-directory-can-be",
+      "branch": "tm/TM-485-plugin-rsync-host-copies-non-ao-directory-can-be",
+      "status": "complete"
+    }
+  ],
+  "updated_at": "2026-10-09T06:02:55.787Z",
+  "integration_branch": null,
+  "base_revision": "44b030d48cf931703eebf08253a5ea6e0c212f5c",
+  "base_source": "server-tip",
+  "owner": "fd2b831f",
+  "workflow_run_id": "tm-TM-485",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-485-plugin-rsync-host-copies-non-ao-directory-can-be",
+  "branch": "tm/TM-485-plugin-rsync-host-copies-non-ao-directory-can-be",
+  "started": true,
+  "state": "cleaned",
+  "previous_workers": [
+    {
+      "name": "agent:TM-485-fd2b831f",
+      "run": "tmux:tm-TM-485",
+      "backend": "tmux",
+      "owner": "fd2b831f",
+      "registered_at": "2026-10-08T23:36:36.361Z",
+      "observed_at": "2026-10-08T23:36:37.063Z",
+      "kind": "tmux",
+      "session_name": "tm-TM-485",
+      "binding": {
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 60758,
+        "sessionId": "$124",
+        "sessionCreated": 1791502596,
+        "paneId": "%172",
+        "panePid": 1403564
+      },
+      "stopped_at": "2026-10-09T05:05:56.432Z",
+      "retired": {
+        "proof": "observed-pane-exited",
+        "observed_at": "2026-10-09T05:05:56.432Z",
+        "result": {
+          "outcome": "exited-without-finish",
+          "reason": "worker ended (task parked) without a finish report"
+        }
+      }
+    }
+  ],
+  "worker": {
+    "name": "agent:TM-485-fd2b831f",
+    "run": "tmux:tm-TM-485",
+    "backend": "tmux",
+    "owner": "fd2b831f",
+    "registered_at": "2026-10-08T23:36:36.361Z",
+    "observed_at": "2026-10-09T05:06:26.634Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-485",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$147",
+      "sessionCreated": 1791522384,
+      "paneId": "%207",
+      "panePid": 4082451
+    },
+    "stopped_at": "2026-10-09T06:02:53.325Z"
+  },
+  "finish": {
+    "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+    "artifacts": [
+      "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/232",
+      "/tmp/tm485-r3/TM-485-evidence-r3.md"
+    ],
+    "checks": [
+      {
+        "name": "agent-orchestration: npm ci",
+        "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+        "exit_code": 0,
+        "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+      },
+      {
+        "name": "agent-orchestration: unit",
+        "command": "sh -c 'cd agent-orchestration && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID npm run -s test:unit'",
+        "exit_code": 1,
+        "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+        "log_tail": "pass 1284 fail 9; the same 9 test names fail at origin/main in a clean worktree (pass 1283 fail 9)"
+      },
+      {
+        "name": "agent-orchestration: build:check",
+        "command": "npm --prefix agent-orchestration run -s build:check",
+        "exit_code": 0,
+        "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+      },
+      {
+        "name": "task-management: unit",
+        "command": "sh -c 'cd task-management && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u TM_NTFY_TOPIC -u TM_NTFY_TOKEN node --test tests/unit/*.test.mjs'",
+        "exit_code": 1,
+        "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+        "log_tail": "pass 1662 fail 15; identical failures at origin/main; task-management unchanged by this branch"
+      },
+      {
+        "name": "agent-orchestration: plugin validate",
+        "command": "claude plugin validate ./agent-orchestration",
+        "exit_code": 0,
+        "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+      },
+      {
+        "name": "task-management: plugin validate",
+        "command": "claude plugin validate ./task-management",
+        "exit_code": 0,
+        "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+      },
+      {
+        "name": "plugin-rsync: plugin validate",
+        "command": "claude plugin validate ./plugin-rsync",
+        "exit_code": 0,
+        "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+      },
+      {
+        "name": "plugin-rsync: tests",
+        "command": "bash plugin-rsync/tests/test-plugin-rsync.sh",
+        "exit_code": 0,
+        "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+        "log_tail": "50 passed, 0 failed"
+      },
+      {
+        "name": "plugin-rsync: classify",
+        "command": "node plugin-rsync/tests/test-classify.mjs",
+        "exit_code": 0,
+        "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+      }
+    ],
+    "risks": [
+      "agent-orchestration unit and task-management unit exit 1 with failures identical by name at origin/main; not caused by this branch",
+      "agent-orchestration/CHANGELOG.md and dist/ are outside the recorded touches; lead asked to widen them",
+      "The rename-aside reclaim race is closed by owner tokens, but the exact two-process interleaving is not reproduced by a test; release ownership is",
+      "Grok keeps no per-plugin trust flag; trusted is inferred as not trusted:false and not in config.toml [plugins].disabled"
+    ],
+    "evidence": "/tmp/tm485-r3/TM-485-evidence-r3.md"
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "77c05462c8ee3dd156182a365ad02433cf916afd",
+    "admitted_base": "44b030d48cf931703eebf08253a5ea6e0c212f5c",
+    "effective_base": "77c05462c8ee3dd156182a365ad02433cf916afd",
+    "range_note": "The range 77c05462c8ee3dd156182a365ad02433cf916afd..revision excludes code already on the default branch at 77c05462c8ee3dd156182a365ad02433cf916afd; the task was admitted at 44b030d48cf931703eebf08253a5ea6e0c212f5c and later merged the default branch. Judge only this task's own changes.",
+    "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-485-plugin-rsync-host-copies-non-ao-directory-can-be",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-485-2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b.patch",
+    "patch_sha256": "32fba4003ca7048957ddb1b754f34da273e9dcfc79562deb772e291ac111c7bf",
+    "packet_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-485-2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b.packet",
+    "packet_sha256": "59264cc4537fca4909d5939014b1f0c73238ac0897d7ed13a65e56349caa4448",
+    "checks_unsatisfied": [
+      "agent-orchestration: unit: exited 1 at 2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+      "task-management: unit: exited 1 at 2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b"
+    ],
+    "nonce": "4eea24b1-375f-4983-b1ba-0700d7a78a0b",
+    "task": "TM-485",
+    "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "created_at": "2026-10-09T05:31:55.949Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-10-09T05:31:56.494Z"
+    },
+    "state": "published",
+    "collection": {
+      "at": "2026-10-09T05:32:00.753Z",
+      "code": "TOPOLOGY_REVIEWER_NO_VERDICT",
+      "reason": "No verdict has been submitted for review request 4eea24b1-375f-4983-b1ba-0700d7a78a0b yet. The reviewer submits it with its review_submit tool (or: ao-topology review submit 4eea24b1-375f-4983-b1ba-0700d7a78a0b --verdict <verdict> --findings @file.json)."
+    },
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-485-2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b.json"
+  },
+  "review": {
+    "base_revision": "77c05462c8ee3dd156182a365ad02433cf916afd",
+    "admitted_base": "44b030d48cf931703eebf08253a5ea6e0c212f5c",
+    "effective_base": "77c05462c8ee3dd156182a365ad02433cf916afd",
+    "patch_sha256": "32fba4003ca7048957ddb1b754f34da273e9dcfc79562deb772e291ac111c7bf",
+    "task": "TM-485",
+    "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "note",
+        "file": "agent-orchestration/src/services/host-copies.mjs",
+        "line": 102,
+        "claim": "I reviewed revision 2cbe08a9 (patch sha256 32fba400…), the same patch as request 4eea24b1, which was blocked only for check evidence. All seven required checks are now satisfied with host-run results, plugin-rsync tests included, and none is a worker claim. All three criteria are met. (1) looksLikeCopy requires `@bytedesk/agent-orchestration`, and a same-version copy with a different build is refreshed unless strictly newer. (2) The Grok repair is limited to the bytedesk marketplace, keeps untrusted entries untrusted, and reports a failed uninstall. (3) Codex hook trust is limited to this marketplace's own cached plugin hooks, with sameTree for `modified`, absolute-PATH binaries, plugin-root cwd, reduced env, the CODEX_HOME lock, and a token-checked stale-lock reclaim; plugin-rsync-mcp no longer runs fix-grok-installs, and there are fake app-server tests. All changed files are within the approved touches."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "request_nonce": "44fc9233-1888-4d42-b43a-2297403a966f",
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+    "created_at": "2026-10-09T05:46:23.569Z"
+  },
+  "merge": {
+    "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+    "landed": "912f5fe36c584204d4c16802a4b9d9336596f0c0",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "2cbe08a954d4d0d201709ca5d9eeb5497f16aa0b",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR #232 merged: faro APPROVE at 2cbe08a9 (synced at 2fe6972d, PR hunks verified), review-232 APPROVE, CI green",
+      "policy_auto_merge": true,
+      "at": "2026-10-09T06:02:51.873Z"
+    }
+  }
+}

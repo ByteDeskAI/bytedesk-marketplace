@@ -1,0 +1,1 @@
+Merged to main via integration PR #204 (7049d2d8), source PR #200. CI green on #204: unit-build-contracts, test-build-install, strict installed-cache, check, validate. Lead ran full suites on the integrated tree: AO test:unit 1092 pass 0 fail; task-management run-tests.sh exit 0. Worker proved each new test red on revert.

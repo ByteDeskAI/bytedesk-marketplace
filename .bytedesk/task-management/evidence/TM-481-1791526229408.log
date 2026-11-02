@@ -1,0 +1,1 @@
+Merged in PR #230 (merge 07efe13b, all CI checks green), on Ryan's 2026-10-09 decision to merge on the design review and the 161-case table (bypass probes not run). Merge with main routed claims, ticket, collect rebind, governance rework and goal resume through isWorkerCaller (61c79bda); tm suite 1701/1701.

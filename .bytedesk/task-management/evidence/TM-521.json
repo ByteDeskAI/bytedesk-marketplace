@@ -1,0 +1,485 @@
+{
+  "task": "TM-521",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-10-09T05:23:08.632Z",
+      "owner": "fd2b831f",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-521-task-management-worker-guard-the-stale-integrati",
+      "branch": "tm/TM-521-task-management-worker-guard-the-stale-integrati",
+      "base_revision": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+      "base_source": "server-tip",
+      "intent": "TM-521: worker-guard matches parsed argv instead of substrings, so quoted text inside a tm block or comment message is never treated as a guarded command; the guarded commands themselves stay refused. Share one predicate across callers. Locate the real worker-guard file first (audit cites worker-guard.mjs:238).",
+      "boundaries": [
+        "task-management worker-guard and its tests, CHANGELOG",
+        "no agent-orchestration edits",
+        "no version bumps"
+      ],
+      "dependencies": [],
+      "checks": [
+        "cd task-management && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u AO_CONSUMER -u AO_TRANSPORT -u TM_DISPATCH_WORKER -u TM_DISPATCH_TASK -u TM_ACTOR node --test tests/unit/*.test.mjs",
+        "claude plugin validate ./task-management"
+      ],
+      "files": [
+        "task-management/CHANGELOG.md",
+        "task-management/hooks/worker-guard.mjs",
+        "task-management/tests/unit/worker-guard.test.mjs"
+      ]
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T05:49:29.791Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "59a5d71f583dde79d97873b2e7c22750316c7d89",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/252",
+          "task-management/lib/worker-guard.mjs",
+          "task-management/tests/unit/worker-guard.test.mjs"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "59a5d71f583dde79d97873b2e7c22750316c7d89"
+          },
+          {
+            "name": "agent-orchestration: unit",
+            "command": "sh -c \"cd agent-orchestration && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID npm run -s test:unit\"",
+            "exit_code": 1,
+            "revision": "59a5d71f583dde79d97873b2e7c22750316c7d89"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "59a5d71f583dde79d97873b2e7c22750316c7d89"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c \"cd task-management && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u TM_NTFY_TOPIC -u TM_NTFY_TOKEN node --test tests/unit/*.test.mjs\"",
+            "exit_code": 1,
+            "revision": "59a5d71f583dde79d97873b2e7c22750316c7d89"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "59a5d71f583dde79d97873b2e7c22750316c7d89"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "59a5d71f583dde79d97873b2e7c22750316c7d89"
+          }
+        ],
+        "risks": [
+          "task-management: unit and agent-orchestration: unit exit 1 inside a dispatched worker env; pre-existing (TM-306): origin/main fails a superset of the same tests in the same env. worker-guard suite 26/26."
+        ],
+        "evidence": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/task-management/evidence/TM-521-verification.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-09T07:05:21.164Z",
+      "worker": {
+        "name": "agent:TM-521-fd2b831f",
+        "run": "tmux:tm-TM-521",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-09T05:23:12.608Z",
+        "observed_at": "2026-10-09T05:49:29.780Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-521",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$151",
+          "sessionCreated": 1791523392,
+          "paneId": "%215",
+          "panePid": 1352906
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "rework",
+      "at": "2026-10-09T07:05:22.008Z",
+      "owner": "fd2b831f",
+      "revision": "59a5d71f583dde79d97873b2e7c22750316c7d89",
+      "review": {
+        "reviewer_id": "c164bf8b",
+        "verdict": "changes_requested",
+        "created_at": "2026-10-09T06:17:15.884Z",
+        "request_nonce": "3e97e4b0-424b-471c-9a23-87145c0b4eb0",
+        "findings": [
+          {
+            "severity": "major",
+            "file": "task-management/lib/worker-guard.mjs",
+            "line": 517,
+            "claim": "Unchanged from request 6167527e: this opens a guard bypass. For any command whose name is an expansion, every whitespace-containing argument is dropped before the FAIL_SAFE test, but that argument is often the code that runs. `$SHELL -c \"gh pr merge 5\"`, `\"$BASH\" -c 'git push origin main'`, or `$RUN -c \"gh pr create --base other\"` (with RUN=sh) reduce to `$SHELL -c`, which FAIL_SAFE doesn't match, so the guard now allows them; before this change they were refused as `unparsed`. A worker can merge or push past the guard through a shell named by a variable.",
+            "evidence": "Line 517: `return { unknown: [w[0], ...w.slice(1).filter((a) => !/\\s/.test(a))].join(\" \") }`. Lines 584-586 refuse an `unknown` only `if (FAIL_SAFE.test(cmd.unknown))`. The same patch (sha256 1cd48744…) and the same revision 59a5d71f as my previous review. The tests cover `$GH pr merge 5` and `$GIT push origin main` but not `-c \"<command>\"` through an expansion.",
+            "fix": "Drop quoted arguments only for tm's data-taking verbs: w[0] is `$TM`, `\"$TM\"`, `${TM}` or ends in `/tm`, and the first bare word is `block` or `comment`. Keep the full text for every other expansion. Add negative tests for `$SHELL -c \"gh pr merge 5\"`, `\"$BASH\" -c 'git push origin main'` and `$X -lc \"gh pr create --base other\"`."
+          },
+          {
+            "severity": "note",
+            "file": "task-management/tests/unit/worker-guard.test.mjs",
+            "line": 42,
+            "claim": "The required checks are now satisfied. Criteria 1 and 2 pass as tested. Only the bypass above prevents approval; the successor round should scope the exemption and add the negative tests."
+          }
+        ]
+      }
+    },
+    {
+      "event": "worker-started",
+      "at": "2026-10-09T07:05:35.577Z",
+      "backend": "tmux",
+      "run": "tmux:tm-TM-521",
+      "workflow_run_id": "tm-TM-521"
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-09T07:05:36.439Z",
+      "worker": {
+        "name": "agent:TM-521-fd2b831f",
+        "run": "tmux:tm-TM-521",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-09T05:23:12.608Z",
+        "observed_at": "2026-10-09T07:05:36.432Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-521",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$155",
+          "sessionCreated": 1791529535,
+          "paneId": "%220",
+          "panePid": 3664037
+        }
+      },
+      "workflow_run_id": "tm-TM-521"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T07:20:38.104Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/252",
+          "task-management/tests/unit/worker-guard.test.mjs",
+          "task-management/CHANGELOG.md"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305"
+          },
+          {
+            "name": "agent-orchestration: unit",
+            "command": "sh -c \"cd agent-orchestration && env -i PATH=\\\"$PATH\\\" HOME=\\\"$HOME\\\" LANG=\\\"${LANG:-C.UTF-8}\\\" USER=\\\"$USER\\\" TMPDIR=\\\"${TMPDIR:-/tmp}\\\" npm run -s test:unit\"",
+            "exit_code": 1,
+            "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c \"cd task-management && env -i PATH=\\\"$PATH\\\" HOME=\\\"$HOME\\\" LANG=\\\"${LANG:-C.UTF-8}\\\" USER=\\\"$USER\\\" TMPDIR=\\\"${TMPDIR:-/tmp}\\\" node --test tests/unit/*.test.mjs\"",
+            "exit_code": 1,
+            "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305"
+          },
+          {
+            "name": "plugin-rsync: tests",
+            "command": "sh -c \"env -i PATH=\\\"$PATH\\\" HOME=\\\"$HOME\\\" LANG=\\\"${LANG:-C.UTF-8}\\\" USER=\\\"$USER\\\" TMPDIR=\\\"${TMPDIR:-/tmp}\\\" bash plugin-rsync/tests/test-plugin-rsync.sh\"",
+            "exit_code": 0,
+            "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305"
+          }
+        ],
+        "risks": [
+          "agent-orchestration: unit and task-management: unit exit 1 inside a dispatched worker session (TM-306/TM-511). task-management: unit fails the identical 41-test list on origin/main 1c497151 (1660 pass) and on the branch (1661 pass). No agent-orchestration file changed.",
+          "Round-1 guard change removed: main's TM-481 refuses every expansion-named command, so the $TM exemption was dead code. The three faro bypass commands are refused (evidence table).",
+          "PR #252 body still describes round 1; the worker guard refuses gh pr edit. Replacement body: .bytedesk/task-management/evidence/tm521-pr-body.md"
+        ],
+        "evidence": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/task-management/evidence/TM-521-round2.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-10-09T08:34:00.638Z",
+      "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305",
+      "landed": "1f53bc8c50f28e2738d619b3c6c8c1a6a7ac4f7c",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR #252 merged: Independent governed review (faro): APPROVE at 2c55198a with all required checks clean (lead-run AO 1320/0, tm 1702/0, plugin-rsync 50/0). Round 2 reverts the round-1 guard change (TM-481 already refuses expansion-named commands) and adds a regression test proving the three bypass commands are refused.",
+        "policy_auto_merge": true,
+        "at": "2026-10-09T08:34:00.163Z"
+      }
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-09T08:34:01.574Z",
+      "worker": {
+        "name": "agent:TM-521-fd2b831f",
+        "run": "tmux:tm-TM-521",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-09T05:23:12.608Z",
+        "observed_at": "2026-10-09T07:05:36.432Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-521",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$155",
+          "sessionCreated": 1791529535,
+          "paneId": "%220",
+          "panePid": 3664037
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "cleanup",
+      "at": "2026-10-09T08:34:03.914Z",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-521-task-management-worker-guard-the-stale-integrati",
+      "branch": "tm/TM-521-task-management-worker-guard-the-stale-integrati",
+      "status": "complete"
+    }
+  ],
+  "updated_at": "2026-10-09T08:34:03.914Z",
+  "integration_branch": null,
+  "base_revision": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+  "base_source": "server-tip",
+  "owner": "fd2b831f",
+  "workflow_run_id": "tm-TM-521",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-521-task-management-worker-guard-the-stale-integrati",
+  "branch": "tm/TM-521-task-management-worker-guard-the-stale-integrati",
+  "started": true,
+  "state": "cleaned",
+  "previous_workers": [
+    {
+      "name": "agent:TM-521-fd2b831f",
+      "run": "tmux:tm-TM-521",
+      "backend": "tmux",
+      "owner": "fd2b831f",
+      "registered_at": "2026-10-09T05:23:12.608Z",
+      "observed_at": "2026-10-09T05:49:29.780Z",
+      "kind": "tmux",
+      "session_name": "tm-TM-521",
+      "binding": {
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 60758,
+        "sessionId": "$151",
+        "sessionCreated": 1791523392,
+        "paneId": "%215",
+        "panePid": 1352906
+      },
+      "stopped_at": "2026-10-09T07:05:21.164Z"
+    }
+  ],
+  "worker": {
+    "name": "agent:TM-521-fd2b831f",
+    "run": "tmux:tm-TM-521",
+    "backend": "tmux",
+    "owner": "fd2b831f",
+    "registered_at": "2026-10-09T05:23:12.608Z",
+    "observed_at": "2026-10-09T07:05:36.432Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-521",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$155",
+      "sessionCreated": 1791529535,
+      "paneId": "%220",
+      "panePid": 3664037
+    },
+    "stopped_at": "2026-10-09T08:34:01.574Z"
+  },
+  "finish": {
+    "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305",
+    "artifacts": [
+      "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/252",
+      "task-management/tests/unit/worker-guard.test.mjs",
+      "task-management/CHANGELOG.md"
+    ],
+    "checks": [
+      {
+        "name": "agent-orchestration: npm ci",
+        "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+        "exit_code": 0,
+        "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305"
+      },
+      {
+        "name": "agent-orchestration: unit",
+        "command": "sh -c \"cd agent-orchestration && env -i PATH=\\\"$PATH\\\" HOME=\\\"$HOME\\\" LANG=\\\"${LANG:-C.UTF-8}\\\" USER=\\\"$USER\\\" TMPDIR=\\\"${TMPDIR:-/tmp}\\\" npm run -s test:unit\"",
+        "exit_code": 1,
+        "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305"
+      },
+      {
+        "name": "agent-orchestration: build:check",
+        "command": "npm --prefix agent-orchestration run -s build:check",
+        "exit_code": 0,
+        "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305"
+      },
+      {
+        "name": "task-management: unit",
+        "command": "sh -c \"cd task-management && env -i PATH=\\\"$PATH\\\" HOME=\\\"$HOME\\\" LANG=\\\"${LANG:-C.UTF-8}\\\" USER=\\\"$USER\\\" TMPDIR=\\\"${TMPDIR:-/tmp}\\\" node --test tests/unit/*.test.mjs\"",
+        "exit_code": 1,
+        "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305"
+      },
+      {
+        "name": "agent-orchestration: plugin validate",
+        "command": "claude plugin validate ./agent-orchestration",
+        "exit_code": 0,
+        "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305"
+      },
+      {
+        "name": "task-management: plugin validate",
+        "command": "claude plugin validate ./task-management",
+        "exit_code": 0,
+        "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305"
+      },
+      {
+        "name": "plugin-rsync: tests",
+        "command": "sh -c \"env -i PATH=\\\"$PATH\\\" HOME=\\\"$HOME\\\" LANG=\\\"${LANG:-C.UTF-8}\\\" USER=\\\"$USER\\\" TMPDIR=\\\"${TMPDIR:-/tmp}\\\" bash plugin-rsync/tests/test-plugin-rsync.sh\"",
+        "exit_code": 0,
+        "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305"
+      }
+    ],
+    "risks": [
+      "agent-orchestration: unit and task-management: unit exit 1 inside a dispatched worker session (TM-306/TM-511). task-management: unit fails the identical 41-test list on origin/main 1c497151 (1660 pass) and on the branch (1661 pass). No agent-orchestration file changed.",
+      "Round-1 guard change removed: main's TM-481 refuses every expansion-named command, so the $TM exemption was dead code. The three faro bypass commands are refused (evidence table).",
+      "PR #252 body still describes round 1; the worker guard refuses gh pr edit. Replacement body: .bytedesk/task-management/evidence/tm521-pr-body.md"
+    ],
+    "evidence": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/task-management/evidence/TM-521-round2.md"
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "1c497151d9c4ca78bb99cef7a882ea079f22363c",
+    "admitted_base": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+    "effective_base": "1c497151d9c4ca78bb99cef7a882ea079f22363c",
+    "range_note": "The range 1c497151d9c4ca78bb99cef7a882ea079f22363c..revision excludes code already on the default branch at 1c497151d9c4ca78bb99cef7a882ea079f22363c; the task was admitted at c9cd187ec93aef43a8e513769d3cccbade7d48a5 and later merged the default branch. Judge only this task's own changes.",
+    "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-521-task-management-worker-guard-the-stale-integrati",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-521-2c55198a46e48f8d11d0099e18d8e35c44737305.patch",
+    "patch_sha256": "aa95563e89e9a2f301f35b6580d04c238b8055248ebd997875c06ccd1675cce0",
+    "packet_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-521-2c55198a46e48f8d11d0099e18d8e35c44737305.packet",
+    "packet_sha256": "11ba8b82752d439c9389c3a71e88c658543ea9aa85965540e54607b15f608517",
+    "checks_unsatisfied": [
+      "agent-orchestration: unit: exited 1 at 2c55198a46e48f8d11d0099e18d8e35c44737305",
+      "task-management: unit: exited 1 at 2c55198a46e48f8d11d0099e18d8e35c44737305"
+    ],
+    "nonce": "21ba80f2-893c-4e46-82f2-b9e97be281fe",
+    "task": "TM-521",
+    "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "created_at": "2026-10-09T07:20:40.458Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-10-09T07:20:40.995Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-521-2c55198a46e48f8d11d0099e18d8e35c44737305.json"
+  },
+  "review": {
+    "base_revision": "1c497151d9c4ca78bb99cef7a882ea079f22363c",
+    "admitted_base": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+    "effective_base": "1c497151d9c4ca78bb99cef7a882ea079f22363c",
+    "patch_sha256": "aa95563e89e9a2f301f35b6580d04c238b8055248ebd997875c06ccd1675cce0",
+    "task": "TM-521",
+    "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "note",
+        "file": "task-management/tests/unit/worker-guard.test.mjs",
+        "line": 525,
+        "claim": "I reviewed revision 2c55198a (patch sha256 aa95563e…), the same patch as request 21ba80f2, which was blocked only for evidence. All seven required checks now pass as host-run results with output (agent-orchestration unit 1320 and 0, task-management unit 1702 and 0, the latter holding this test). No guard code changes; TM-481's allowlist on the default branch at 1c497151 already reads a spelled-out `tm` line as data, which closes the bypass I raised against 59a5d71f. Criterion 1: `tm block` and `tm comment` with a quoted refused command are allowed for a worker. Criterion 2: the quoted commands themselves, chained commands, `$TM block`, `$GH pr merge`, and expansion-named shells running a quoted script (`$SHELL -c`, `\"$BASH\" -c`, `$X -lc`) are refused, and the table refuses the last three as `unparsed`. Both changed files are within the touches."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "request_nonce": "a3b0a3f7-4264-4022-a0a4-83c5136be58b",
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "2c55198a46e48f8d11d0099e18d8e35c44737305",
+    "created_at": "2026-10-09T07:44:48.524Z"
+  },
+  "merge": {
+    "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305",
+    "landed": "1f53bc8c50f28e2738d619b3c6c8c1a6a7ac4f7c",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "2c55198a46e48f8d11d0099e18d8e35c44737305",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR #252 merged: Independent governed review (faro): APPROVE at 2c55198a with all required checks clean (lead-run AO 1320/0, tm 1702/0, plugin-rsync 50/0). Round 2 reverts the round-1 guard change (TM-481 already refuses expansion-named commands) and adds a regression test proving the three bypass commands are refused.",
+      "policy_auto_merge": true,
+      "at": "2026-10-09T08:34:00.163Z"
+    }
+  }
+}

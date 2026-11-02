@@ -1,0 +1,10 @@
+1840383be073c66572afc1cd6da7dda917fecce0
+npm-ci 0
+build-check 0
+ao-validate 0
+tm-validate 0
+tm-unit 1
+ao-unit 1
+tm-unit-clean-env 0
+ao-unit-clean-env 0
+DONE

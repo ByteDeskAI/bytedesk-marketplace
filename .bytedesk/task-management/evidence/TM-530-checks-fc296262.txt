@@ -1,0 +1,109 @@
+TM-530 required checks at fc296262c2019c884b9150339a43eee14041d89a (clean tree, worktree tm/TM-530-...)
+Run inside a dispatched-worker session: worker-ancestry guards refuse lead-only verbs, so suites that drive tm as the lead fail identically on clean origin/main 3f3fe7ce (task-management: same 41 names, diffed).
+
+=== ao-ci ===
+npm warn deprecated nats@2.29.3: Package moved. Use @nats-io/transport-node from https://github.com/nats-io/nats.js
+
+added 154 packages in 4s
+
+=== ao-unit ===
+  duration_ms: 121.637955
+  type: 'test'
+  ...
+1..1334
+# tests 1343
+# suites 3
+# pass 1329
+# fail 10
+# cancelled 0
+# skipped 4
+# todo 0
+# duration_ms 551128.479892
+
+=== ao-build ===
+  ../../../../../../../../../../tmp/ao-build-check-o3e8Dg/cli.cjs  2.7mb ⚠️
+
+⚡ Done in 107ms
+
+  ../../../../../../../../../../tmp/ao-build-check-o3e8Dg/mcp.cjs  3.3mb ⚠️
+
+⚡ Done in 109ms
+
+  ...../../../../../../tmp/ao-build-check-o3e8Dg/claude-agent-acp.mjs  2.2mb ⚠️
+  ..../../../tmp/ao-build-check-o3e8Dg/claude-agent-acp.mjs.LEGAL.txt  197b 
+
+⚡ Done in 180ms
+
+=== tm-unit ===
+  duration_ms: 106.871475
+  type: 'suite'
+  ...
+1..512
+# tests 1726
+# suites 409
+# pass 1685
+# fail 41
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 16853.628691
+
+=== ao-validate ===
+Validating plugin manifest: /home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-530-task-management-finish-pr-228-stop-warns-when-a-/agent-orchestration/.claude-plugin/plugin.json
+
+⚠ Found 1 warning:
+
+  ❯ version: No version specified. Consider adding a version following semver (e.g., "1.0.0")
+
+✔ Validation passed with warnings
+
+=== tm-validate ===
+  ❯ hooks.PostToolUse: Shell command uses ${CLAUDE_PLUGIN_ROOT} without quotes: ${CLAUDE_PLUGIN_ROOT}/hooks/tm-hook.sh post-bash. If the expanded path contains a space the command can split into several words and fail. Wrap the placeholder in double quotes, or use exec form: {"command": "<executable>", "args": ["${CLAUDE_PLUGIN_ROOT}/..."]}.
+  ❯ hooks.PostToolUse: Shell command uses ${CLAUDE_PLUGIN_ROOT} without quotes: ${CLAUDE_PLUGIN_ROOT}/hooks/tm-hook.sh post-edit. If the expanded path contains a space the command can split into several words and fail. Wrap the placeholder in double quotes, or use exec form: {"command": "<executable>", "args": ["${CLAUDE_PLUGIN_ROOT}/..."]}.
+  ❯ hooks.PostToolUse: Shell command uses ${CLAUDE_PLUGIN_ROOT} without quotes: ${CLAUDE_PLUGIN_ROOT}/hooks/tm-hook.sh post-decision. If the expanded path contains a space the command can split into several words and fail. Wrap the placeholder in double quotes, or use exec form: {"command": "<executable>", "args": ["${CLAUDE_PLUGIN_ROOT}/..."]}.
+  ❯ hooks.UserPromptSubmit: Shell command uses ${CLAUDE_PLUGIN_ROOT} without quotes: ${CLAUDE_PLUGIN_ROOT}/hooks/tm-hook.sh user-prompt. If the expanded path contains a space the command can split into several words and fail. Wrap the placeholder in double quotes, or use exec form: {"command": "<executable>", "args": ["${CLAUDE_PLUGIN_ROOT}/..."]}.
+  ❯ hooks.PreCompact: Shell command uses ${CLAUDE_PLUGIN_ROOT} without quotes: ${CLAUDE_PLUGIN_ROOT}/hooks/tm-hook.sh pre-compact. If the expanded path contains a space the command can split into several words and fail. Wrap the placeholder in double quotes, or use exec form: {"command": "<executable>", "args": ["${CLAUDE_PLUGIN_ROOT}/..."]}.
+  ❯ hooks.SubagentStart: Shell command uses ${CLAUDE_PLUGIN_ROOT} without quotes: ${CLAUDE_PLUGIN_ROOT}/hooks/tm-hook.sh subagent-start. If the expanded path contains a space the command can split into several words and fail. Wrap the placeholder in double quotes, or use exec form: {"command": "<executable>", "args": ["${CLAUDE_PLUGIN_ROOT}/..."]}.
+  ❯ hooks.SubagentStop: Shell command uses ${CLAUDE_PLUGIN_ROOT} without quotes: ${CLAUDE_PLUGIN_ROOT}/hooks/tm-hook.sh subagent-stop. If the expanded path contains a space the command can split into several words and fail. Wrap the placeholder in double quotes, or use exec form: {"command": "<executable>", "args": ["${CLAUDE_PLUGIN_ROOT}/..."]}.
+  ❯ hooks.Notification: Shell command uses ${CLAUDE_PLUGIN_ROOT} without quotes: ${CLAUDE_PLUGIN_ROOT}/hooks/tm-hook.sh notification. If the expanded path contains a space the command can split into several words and fail. Wrap the placeholder in double quotes, or use exec form: {"command": "<executable>", "args": ["${CLAUDE_PLUGIN_ROOT}/..."]}.
+  ❯ hooks.SessionEnd: Shell command uses ${CLAUDE_PLUGIN_ROOT} without quotes: ${CLAUDE_PLUGIN_ROOT}/hooks/tm-hook.sh session-end. If the expanded path contains a space the command can split into several words and fail. Wrap the placeholder in double quotes, or use exec form: {"command": "<executable>", "args": ["${CLAUDE_PLUGIN_ROOT}/..."]}.
+  ❯ hooks.Stop: Shell command uses ${CLAUDE_PLUGIN_ROOT} without quotes: ${CLAUDE_PLUGIN_ROOT}/hooks/tm-hook.sh stop. If the expanded path contains a space the command can split into several words and fail. Wrap the placeholder in double quotes, or use exec form: {"command": "<executable>", "args": ["${CLAUDE_PLUGIN_ROOT}/..."]}.
+
+✔ Validation passed with warnings
+
+=== rsync ===
+  ok   a modified hook is not trusted when another file in its plugin root differs from source
+  ok   a modified hook is not trusted when its plugin root holds a file source lacks
+  ok   the same modified hook is trusted once the tree matches again
+  ok   a session variable does not reach codex
+  ok   trust-codex-hooks stands down while another run holds the lock
+  ok   trust-codex-hooks reclaims a stale lock and leaves nothing behind
+  ok   a lock release never removes another run's lock
+  ok   trust-codex-hooks refuses a bytedesk marketplace registered elsewhere
+  ok   plugin-rsync-mcp answers initialize and tools/list without waiting for the trust run
+  ok   plugin-rsync-mcp runs trust-codex-hooks and not fix-grok-installs
+
+50 passed, 0 failed
+
+=== task-management failing names vs origin/main: identical ===
+collectTopology — exact native workflow observation
+goal feedback scope and proof
+governed completion is shared by every task write surface
+TM-247 governed worker lifecycle (task-management)
+TM-467 known-repo mitigation
+tm doctor lists finished work with no review for its current revision (TM-244)
+tm-hook.sh pre-bash — the glue
+tm-hook.sh pre-bash — TM-481 C1: the guard never releases on store state
+worker-identity — env -u TM_DISPATCH_WORKER from inside the worker's process tree
+
+=== agent-orchestration failures (branch has no agent-orchestration diff) ===
+not ok 704 - actual tm CLI provisions once, records worker claim, and enforces start before admission
+not ok 705 - TM-240: a standing reviewer refuses unadmitted tm dispatch; admit, dispatch, finish yields a reviewable revision
+not ok 714 - production worker proof uses actual tm registry and observed process exit before merge and cleanup
+not ok 721 - TM-417 AC4: admit, tm dispatch on the topology backend, finish report and reviewer request agree on one run id
+not ok 725 - record-landing records an operator landing that governed completion accepts, without merging
+not ok 732 - governed completion accepts a delegated integration record unchanged
+not ok 761 - TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+not ok 778 - TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+not ok 791 - TM-347: a governed task returns to working after changes are requested, and only a new revision can be approved
+not ok 825 - TM-247 AC9: a develop merge-in on the approved revision is eligible, lands, cleans up and passes governed completion

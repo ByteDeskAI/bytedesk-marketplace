@@ -1,0 +1,1 @@
+{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"· graft refreshed this repo's agent wiring (including this machine's ~/.codex config) (written by unwired, now 0.21.1): agents, antigravity, claude, copilot, grok, hermes."}}

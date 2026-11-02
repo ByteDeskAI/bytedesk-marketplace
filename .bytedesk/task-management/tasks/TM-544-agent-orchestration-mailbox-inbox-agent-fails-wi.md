@@ -8,7 +8,7 @@ title: "agent-orchestration: mailbox inbox --agent fails with TOPOLOGY_DELEGATIO
 epic: "EP-029"
 acceptance: [{"text":"After a lead respawn and prompt ack, mailbox inbox --agent <id> works without --consumer (test)","done":false}]
 evidence: []
-commits: []
+commits: ["90a9bd48"]
 blockedBy: []
 blocks: []
 actor: "main"
@@ -17,7 +17,7 @@ branch: "tm/TM-544-agent-orchestration-mailbox-inbox-agent-fails-wi"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-544-agent-orchestration-mailbox-inbox-agent-fails-wi"
 labels: ["ready-for-agent"]
 triagedBy: "auto"
-updated: "2026-11-01T21:02:55.314Z"
+updated: "2026-11-01T21:02:58.425Z"
 comments: [{"author":"main","ts":"2026-11-01T21:02:35.353Z","text":"Second repro (lead fd2b831f, 2026-11-01 ~20:45Z, bytedesk-marketplace): after a controlled-restart respawn of pane %17 (new pane_pid 2535009), 'ao-topology mailbox inbox --agent fd2b831f' from the agent dir failed: 'TOPOLOGY_DELEGATION_ACTOR: Pane %17 now runs pane_pid 2535009, not the 88351 the census recorded for fd2b831f'. After 'prompt ack' it still needed --consumer."},{"author":"main","ts":"2026-11-01T21:02:54.793Z","text":"{\"event\":\"start\",\"at\":\"2026-11-01T21:02:54.686Z\",\"owner\":\"fd2b831f\",\"worktree\":\"/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-544-agent-orchestration-mailbox-inbox-agent-fails-wi\",\"branch\":\"tm/TM-544-agent-orchestration-mailbox-inbox-agent-fails-wi\",\"base_revision\":\"8189a6bd34faf7bcb0885492301c2d12078b3c8a\",\"base_source\":\"server-tip\",\"intent\":\"Implement TM-544: mailbox inbox --agent resolves the caller after a lead respawn and prompt ack without --consumer, with a regression test.\",\"boundaries\":[\"agent-orchestration/topology/lib/delegation.mjs\",\"agent-orchestration/topology/cli.mjs\",\"agent-orchestration/tests/unit\",\"agent-orchestration/dist\"],\"dependencies\":[],\"checks\":[\"agent-orchestration: npm ci\",\"agent-orchestration: unit\",\"agent-orchestration: build:check\",\"task-management: unit\",\"agent-orchestration: plugin validate\",\"task-management: plugin validate\",\"plugin-rsync: tests\"],\"files\":[\"agent-orchestration/dist\",\"agent-orchestration/tests/unit\",\"agent-orchestration/topology/cli.mjs\",\"agent-orchestration/topology/lib/delegation.mjs\"]}"}]
 priority: "medium"
 touches: ["agent-orchestration/dist","agent-orchestration/tests/unit","agent-orchestration/topology/cli.mjs","agent-orchestration/topology/lib/delegation.mjs"]

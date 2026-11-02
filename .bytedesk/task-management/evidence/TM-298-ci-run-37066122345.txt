@@ -1,0 +1,31 @@
+6-10-02T21:24:37.5476649Z # TM-298 suite-end check: the run left 2 process(es) and 0 operator tmux session(s) behind:
+6-10-02T21:24:37.5481912Z #   pid 27685: /tmp/ao-act-many-0x9HlS/home/.local/share/bytedesk/agent-orchestration/bin/process-compose-v1.122.0/process-compose up -f /tmp/ao-act-many-0x9HlS/state/services/process-compose.yaml -t=false --keep-project --disable-dotenv --address 127.0.0.1 -p 45101 --token-
+6-10-02T21:24:37.5486307Z #   pid 27696: /opt/hostedtoolcache/node/22.23.3/x64/bin/node /tmp/ao-act-many-0x9HlS/home/.local/share/bytedesk/agent-orchestration/launcher.cjs session-host --state-root /tmp/ao-act-many-0x9HlS/state
+6-10-02T21:24:37.5549964Z # Subtest: tests/contract/topology-activation-tmux.test.mjs
+6-10-02T21:24:37.5553419Z not ok 3 - tests/contract/topology-activation-tmux.test.mjs
+6-10-02T21:24:37.5555119Z   ---
+6-10-02T21:24:37.5555409Z   duration_ms: 22109.202959
+
+6-10-02T21:28:59.2859839Z # TM-298 suite-end check: the run left 0 process(es) and 1 operator tmux session(s) behind:
+6-10-02T21:28:59.2862126Z #   session runnervm8df0l--ao-topology-deaf-pudlsu--lead--hana on /tmp/tmux-1001/default (cwd /tmp/ao-topology-deaf-PUDLsU/.bytedesk/agent-orchestration/agents/ec36ed9c)
+6-10-02T21:28:59.2922160Z 1..16
+6-10-02T21:28:59.2922624Z # tests 19
+6-10-02T21:28:59.2923102Z # suites 0
+6-10-02T21:28:59.2923605Z # pass 17
+6-10-02T21:28:59.2924124Z # fail 2
+6-10-02T21:27:34.1823891Z   type: 'test'
+6-10-02T21:27:34.1824372Z   ...
+6-10-02T21:27:45.2537349Z # Subtest: a message rung at a deaf pane escalates rather than reporting a delivery
+6-10-02T21:27:45.2541391Z not ok 13 - a message rung at a deaf pane escalates rather than reporting a delivery
+6-10-02T21:27:45.2542326Z   ---
+6-10-02T21:27:45.2542697Z   duration_ms: 11071.790357
+6-10-02T21:27:45.2543242Z   type: 'test'
+6-10-02T21:27:45.2545101Z   location: '/home/runner/work/bytedesk-marketplace/bytedesk-marketplace/agent-orchestration/tests/contract/topology-tmux.test.mjs:284:1'
+6-10-02T21:27:45.2546771Z   failureType: 'testCodeFailure'
+6-10-02T21:27:45.2547860Z   error: 'supervisor 34719 was started by the managed services, not by this test'
+6-10-02T21:27:45.2548737Z   code: 'ERR_ASSERTION'
+6-10-02T21:27:45.2549230Z   name: 'AssertionError'
+6-10-02T21:27:45.2549633Z   expected: '1'
+6-10-02T21:27:45.2550004Z   actual: '1'
+6-10-02T21:27:45.2550441Z   operator: 'notStrictEqual'
+6-10-02T21:27:45.2550913Z   stack: |-

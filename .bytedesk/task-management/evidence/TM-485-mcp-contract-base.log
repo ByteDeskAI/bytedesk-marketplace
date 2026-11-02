@@ -1,0 +1,31 @@
+TAP version 13
+# Subtest: public MCP surface exposes exactly the orchestration-prefixed contract
+ok 1 - public MCP surface exposes exactly the orchestration-prefixed contract
+  ---
+  duration_ms: 112.594119
+  type: 'test'
+  ...
+# Subtest: MCP plan and spawn expose protocols while route remains a single-route preview
+ok 2 - MCP plan and spawn expose protocols while route remains a single-route preview
+  ---
+  duration_ms: 64.386975
+  type: 'test'
+  ...
+# Subtest: every MCP tool publishes a concrete forward-compatible success/error envelope
+ok 3 - every MCP tool publishes a concrete forward-compatible success/error envelope
+  ---
+  duration_ms: 57.883501
+  type: 'test'
+  ...
+# Subtest: concrete output schemas preserve serialized operation errors
+ok 4 - concrete output schemas preserve serialized operation errors
+  ---
+  duration_ms: 16.080277
+  type: 'test'
+  ...
+# Subtest: TM-352: orchestration_mailbox_wait returns a standing reply and refuses an unknown id
+ok 5 - TM-352: orchestration_mailbox_wait returns a standing reply and refuses an unknown id
+  ---
+  duration_ms: 332.228916
+  type: 'test'
+  ...

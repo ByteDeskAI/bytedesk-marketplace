@@ -1,0 +1,2975 @@
+TAP version 13
+# Subtest: TM-369: routine read and report commands are approved
+ok 1 - TM-369: routine read and report commands are approved
+  ---
+  duration_ms: 15.083529
+  type: 'test'
+  ...
+# Subtest: TM-432/433: every gated verb falls through with flags before, between and after the subcommand
+ok 2 - TM-432/433: every gated verb falls through with flags before, between and after the subcommand
+  ---
+  duration_ms: 19.954404
+  type: 'test'
+  ...
+# Subtest: TM-369/432/433/434: gated, unlisted, destructive and compound commands fall through
+ok 3 - TM-369/432/433/434: gated, unlisted, destructive and compound commands fall through
+  ---
+  duration_ms: 17.32635
+  type: 'test'
+  ...
+# Subtest: TM-433: the explicit deny list wins even if the allowlist is edited to include a gated verb
+ok 4 - TM-433: the explicit deny list wins even if the allowlist is edited to include a gated verb
+  ---
+  duration_ms: 9.564791
+  type: 'test'
+  ...
+# Subtest: TM-432: the hook parses argv with the ao-topology CLI's own parseArgs, not a copy
+ok 5 - TM-432: the hook parses argv with the ao-topology CLI's own parseArgs, not a copy
+  ---
+  duration_ms: 0.303078
+  type: 'test'
+  ...
+# Subtest: TM-434: only the realpath of the sibling launcher is approved, never a prefix look-alike
+ok 6 - TM-434: only the realpath of the sibling launcher is approved, never a prefix look-alike
+  ---
+  duration_ms: 2.007559
+  type: 'test'
+  ...
+# Subtest: TM-432 review: a look-alike earlier on PATH is never approved, for any program
+ok 7 - TM-432 review: a look-alike earlier on PATH is never approved, for any program
+  ---
+  duration_ms: 1.532866
+  type: 'test'
+  ...
+# Subtest: TM-432 review: tmux is approved only at a pinned system path with a root-owned chain up to /
+ok 8 - TM-432 review: tmux is approved only at a pinned system path with a root-owned chain up to /
+  ---
+  duration_ms: 1.010373
+  type: 'test'
+  ...
+# Subtest: TM-432 review: an approval pins the program to the realpath it judged (no TOCTOU)
+ok 9 - TM-432 review: an approval pins the program to the realpath it judged (no TOCTOU)
+  ---
+  duration_ms: 0.860323
+  type: 'test'
+  ...
+# Subtest: TM-432 review: prompt ack approves only the caller's own agent, positional or --agent
+ok 10 - TM-432 review: prompt ack approves only the caller's own agent, positional or --agent
+  ---
+  duration_ms: 0.773555
+  type: 'test'
+  ...
+# Subtest: TM-432 review: identity-bound verbs approve only the caller's own --agent
+ok 11 - TM-432 review: identity-bound verbs approve only the caller's own --agent
+  ---
+  duration_ms: 1.486302
+  type: 'test'
+  ...
+# Subtest: TM-369: the hook prints an allow decision, or nothing, and never blocks
+ok 12 - TM-369: the hook prints an allow decision, or nothing, and never blocks
+  ---
+  duration_ms: 139.465948
+  type: 'test'
+  ...
+# Subtest: TM-369: hooks.json wires the allowlist on Bash; the project-install guard stays retired (TM-392)
+ok 13 - TM-369: hooks.json wires the allowlist on Bash; the project-install guard stays retired (TM-392)
+  ---
+  duration_ms: 0.312666
+  type: 'test'
+  ...
+# Subtest: the bundle build does not follow symlinks out of the tree
+ok 14 - the bundle build does not follow symlinks out of the tree
+  ---
+  duration_ms: 0.650325
+  type: 'test'
+  ...
+# Subtest: the ACP entry point is mapped back in-tree, because require.resolve always realpaths
+ok 15 - the ACP entry point is mapped back in-tree, because require.resolve always realpaths
+  ---
+  duration_ms: 0.119875
+  type: 'test'
+  ...
+# Subtest: TM-379: healthy AO, store and services is ok; each unhealthy part alone fails the whole
+ok 16 - TM-379: healthy AO, store and services is ok; each unhealthy part alone fails the whole
+  ---
+  duration_ms: 581.867617
+  type: 'test'
+  ...
+# Subtest: TM-379: an error in the task store fails the combined doctor and is named
+ok 17 - TM-379: an error in the task store fails the combined doctor and is named
+  ---
+  duration_ms: 441.19872
+  type: 'test'
+  ...
+# Subtest: TM-379: without task-management the store is not checked and does not fail the doctor
+ok 18 - TM-379: without task-management the store is not checked and does not fail the doctor
+  ---
+  duration_ms: 113.830725
+  type: 'test'
+  ...
+# Subtest: stateRoot uses native Windows and Linux state locations
+ok 19 - stateRoot uses native Windows and Linux state locations
+  ---
+  duration_ms: 1.360176
+  type: 'test'
+  ...
+# Subtest: validateStateRoot preserves nested missing segments on every platform
+ok 20 - validateStateRoot preserves nested missing segments on every platform
+  ---
+  duration_ms: 6.707316
+  type: 'test'
+  ...
+# Subtest: a launcher binding is read from the environment, and is null when nothing names one
+ok 21 - a launcher binding is read from the environment, and is null when nothing names one
+  ---
+  duration_ms: 4.268826
+  type: 'test'
+  ...
+# Subtest: launcher labels are bounded single lines, because another program renders them
+ok 22 - launcher labels are bounded single lines, because another program renders them
+  ---
+  duration_ms: 0.327653
+  type: 'test'
+  ...
+# Subtest: a run spawned inside a worker names that worker's run as its parent
+ok 23 - a run spawned inside a worker names that worker's run as its parent
+  ---
+  duration_ms: 0.334501
+  type: 'test'
+  ...
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-control-seam-5JpPES/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# Subtest: spawn records the parent run and the launcher it was started from
+ok 24 - spawn records the parent run and the launcher it was started from
+  ---
+  duration_ms: 189.899404
+  type: 'test'
+  ...
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-control-seam-Q7lnEx/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# Subtest: a run launched from nowhere identifiable says so, rather than inventing a launcher
+ok 25 - a run launched from nowhere identifiable says so, rather than inventing a launcher
+  ---
+  duration_ms: 149.428509
+  type: 'test'
+  ...
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-control-seam-IogOnI/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# Subtest: session-open returns the capability URL without opening a browser
+ok 26 - session-open returns the capability URL without opening a browser
+  ---
+  duration_ms: 203.708151
+  type: 'test'
+  ...
+# Subtest: session-open refuses a run that does not exist, before minting anything
+ok 27 - session-open refuses a run that does not exist, before minting anything
+  ---
+  duration_ms: 37.443519
+  type: 'test'
+  ...
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-control-seam-MpTLwH/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# Subtest: a one-shot caller is refused a URL served by a host that dies with the command
+ok 28 - a one-shot caller is refused a URL served by a host that dies with the command
+  ---
+  duration_ms: 121.881869
+  type: 'test'
+  ...
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-control-seam-86xboH/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# Subtest: an attested decision records the actor label the caller holding the capability gave
+ok 29 - an attested decision records the actor label the caller holding the capability gave
+  ---
+  duration_ms: 410.585204
+  type: 'test'
+  ...
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-control-seam-f5t30g/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-control-seam-YWzFdQ/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-control-seam-Gk5Kax/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-control-seam-95t5jc/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-control-seam-E2ucZ9/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# Subtest: an actor label is optional and bounded, and never blanks the record
+ok 30 - an actor label is optional and bounded, and never blanks the record
+  ---
+  duration_ms: 2144.898822
+  type: 'test'
+  ...
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-control-seam-vjnduD/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# Subtest: the session-open verb answers on stdout, as JSON or as the bare URL
+ok 31 - the session-open verb answers on stdout, as JSON or as the bare URL
+  ---
+  duration_ms: 953.158688
+  type: 'test'
+  ...
+# Subtest: cleanup is one of the controls a capability holder can drive
+ok 32 - cleanup is one of the controls a capability holder can drive
+  ---
+  duration_ms: 55.424278
+  type: 'test'
+  ...
+# Subtest: platform darwin selects the darwin process-group backend, with no systemd checks
+ok 33 - platform darwin selects the darwin process-group backend, with no systemd checks
+  ---
+  duration_ms: 2.415678
+  type: 'test'
+  ...
+# Subtest: the darwin host adapter hands the server the darwin backend; Linux keeps linux-native
+ok 34 - the darwin host adapter hands the server the darwin backend; Linux keeps linux-native
+  ---
+  duration_ms: 0.511254
+  type: 'test'
+  ...
+# Subtest: spawn refuses a run on a host without provider isolation, naming the reason
+ok 35 - spawn refuses a run on a host without provider isolation, naming the reason
+  ---
+  duration_ms: 0.769476
+  type: 'test'
+  ...
+# Subtest: darwin start identity comes from ps lstart in the C locale, never /proc
+ok 36 - darwin start identity comes from ps lstart in the C locale, never /proc
+  ---
+  duration_ms: 14.168417
+  type: 'test'
+  ...
+# Subtest: process-group backend launches, proves liveness, and cancel stops the whole group
+ok 37 - process-group backend launches, proves liveness, and cancel stops the whole group
+  ---
+  duration_ms: 220.502601
+  type: 'test'
+  ...
+# Subtest: the watchdog enforces the runtime limit, escalating to SIGKILL for a group that ignores SIGTERM
+ok 38 - the watchdog enforces the runtime limit, escalating to SIGKILL for a group that ignores SIGTERM
+  ---
+  duration_ms: 637.406864
+  type: 'test'
+  ...
+# Subtest: the watchdog caps core dumps and file size the way prlimit does on Linux
+ok 39 - the watchdog caps core dumps and file size the way prlimit does on Linux
+  ---
+  duration_ms: 32.600004
+  type: 'test'
+  ...
+# Subtest: the process-group doctor probe runs the watchdog for real
+ok 40 - the process-group doctor probe runs the watchdog for real
+  ---
+  duration_ms: 56.349208
+  type: 'test'
+  ...
+# Subtest: TM-392: a hook installed before the retirement lets a real commit through in a repo that enables the plugins at project scope
+ok 41 - TM-392: a hook installed before the retirement lets a real commit through in a repo that enables the plugins at project scope
+  ---
+  duration_ms: 48.01968
+  type: 'test'
+  ...
+# Subtest: TM-392: no PreToolUse hook gates Bash, so no command text (a heredoc that mentions a commit included) can be blocked
+ok 42 - TM-392: no PreToolUse hook gates Bash, so no command text (a heredoc that mentions a commit included) can be blocked
+  ---
+  duration_ms: 2.217054
+  type: 'test'
+  ...
+# Subtest: install is retired; status finds an old hook and uninstall removes only its own
+ok 43 - install is retired; status finds an old hook and uninstall removes only its own
+  ---
+  duration_ms: 36.02567
+  type: 'test'
+  ...
+# Subtest: ao-topology git-hook reports a non-repository clearly
+ok 44 - ao-topology git-hook reports a non-repository clearly
+  ---
+  duration_ms: 119.622404
+  type: 'test'
+  ...
+# Subtest: goal loop discovery and inspection retain workflow identity without exposing prompts or recipes
+ok 45 - goal loop discovery and inspection retain workflow identity without exposing prompts or recipes
+  ---
+  duration_ms: 230.818031
+  type: 'test'
+  ...
+# Subtest: console reads separate publication and disposition facts without broker pulls or ACK
+ok 46 - console reads separate publication and disposition facts without broker pulls or ACK
+  ---
+  duration_ms: 166.128521
+  type: 'test'
+  ...
+# Subtest: goal control requires operator attestation and current index revision; crash retry retains original native revision
+ok 47 - goal control requires operator attestation and current index revision; crash retry retains original native revision
+  ---
+  duration_ms: 415.090137
+  type: 'test'
+  ...
+# Subtest: discovery rejects a redirected loop record
+ok 48 - discovery rejects a redirected loop record
+  ---
+  duration_ms: 132.39651
+  type: 'test'
+  ...
+# Subtest: a native goal update without index publication invalidates the old operator decision
+ok 49 - a native goal update without index publication invalidates the old operator decision
+  ---
+  duration_ms: 186.075739
+  type: 'test'
+  ...
+# Subtest: safe lead notification is stable per obligation and observed incarnation
+ok 50 - safe lead notification is stable per obligation and observed incarnation
+  ---
+  duration_ms: 2.730875
+  type: 'test'
+  ...
+# Subtest: wrong recipient and occupied composer never claim engagement
+ok 51 - wrong recipient and occupied composer never claim engagement
+  ---
+  duration_ms: 0.302457
+  type: 'test'
+  ...
+# Subtest: persisted controller drives every phase and public TM completion, then proposes without starting another cycle
+ok 52 - persisted controller drives every phase and public TM completion, then proposes without starting another cycle
+  ---
+  duration_ms: 467.916098
+  type: 'test'
+  ...
+# Subtest: start and report retries are idempotent and changed payload reuse is rejected
+ok 53 - start and report retries are idempotent and changed payload reuse is rejected
+  ---
+  duration_ms: 183.877049
+  type: 'test'
+  ...
+# Subtest: a restart recovers a persisted report before phase advancement without a second obligation
+ok 54 - a restart recovers a persisted report before phase advancement without a second obligation
+  ---
+  duration_ms: 114.170667
+  type: 'test'
+  ...
+# Subtest: crash after durable mail publication recovers by obligation ID; transport acceptance never advances a phase
+ok 55 - crash after durable mail publication recovers by obligation ID; transport acceptance never advances a phase
+  ---
+  duration_ms: 102.218263
+  type: 'test'
+  ...
+# Subtest: wrong goal, phase, artifact, evaluator and foreign task reports cannot advance
+ok 56 - wrong goal, phase, artifact, evaluator and foreign task reports cannot advance
+  ---
+  duration_ms: 255.43313
+  type: 'test'
+  ...
+# Subtest: phase deadline persists human-required reason and retry refuses live or uncertain writers
+ok 57 - phase deadline persists human-required reason and retry refuses live or uncertain writers
+  ---
+  duration_ms: 158.061332
+  type: 'test'
+  ...
+# Subtest: three failed no-progress cycles stop persistently; actor label cannot grant human authority
+ok 58 - three failed no-progress cycles stop persistently; actor label cannot grant human authority
+  ---
+  duration_ms: 254.924999
+  type: 'test'
+  ...
+# Subtest: scope and authority drift stop a running loop; recipe changes never silently replace the retained argv
+ok 59 - scope and authority drift stop a running loop; recipe changes never silently replace the retained argv
+  ---
+  duration_ms: 100.347535
+  type: 'test'
+  ...
+# Subtest: durable reply recovery validates a correlated report and never treats a generic ACK as success
+ok 60 - durable reply recovery validates a correlated report and never treats a generic ACK as success
+  ---
+  duration_ms: 131.269442
+  type: 'test'
+  ...
+# Subtest: global disable, explicit enrollment veto and an unlisted recipe fail before sending
+ok 61 - global disable, explicit enrollment veto and an unlisted recipe fail before sending
+  ---
+  duration_ms: 46.737959
+  type: 'test'
+  ...
+# Subtest: evidence path escape and missing evidence are refused; discovery failure preserves committed work
+ok 62 - evidence path escape and missing evidence are refused; discovery failure preserves committed work
+  ---
+  duration_ms: 89.864463
+  type: 'test'
+  ...
+# Subtest: typed human decision is exact and approval does not become phase success
+ok 63 - typed human decision is exact and approval does not become phase success
+  ---
+  duration_ms: 218.788408
+  type: 'test'
+  ...
+# Subtest: explicitly unauthenticated human channel and Codex-marked session cannot control the loop
+ok 64 - explicitly unauthenticated human channel and Codex-marked session cannot control the loop
+  ---
+  duration_ms: 95.527164
+  type: 'test'
+  ...
+# Subtest: a report persisted during pause refuses altered evidence when resumed
+ok 65 - a report persisted during pause refuses altered evidence when resumed
+  ---
+  duration_ms: 224.725013
+  type: 'test'
+  ...
+# Subtest: durable admission precedes supervisor activation and first tick can reconcile without deadlock
+ok 66 - durable admission precedes supervisor activation and first tick can reconcile without deadlock
+  ---
+  duration_ms: 96.496448
+  type: 'test'
+  ...
+# Subtest: failed supervisor activation is durable, visible and recovers on a later supervisor tick
+ok 67 - failed supervisor activation is durable, visible and recovers on a later supervisor tick
+  ---
+  duration_ms: 131.077183
+  type: 'test'
+  ...
+# Subtest: historical completion is not displayed as proof when public TM reports drift
+ok 68 - historical completion is not displayed as proof when public TM reports drift
+  ---
+  duration_ms: 502.692594
+  type: 'test'
+  ...
+# Subtest: a blocked authoritative completion repairs rather than retrying an immutable success report forever
+ok 69 - a blocked authoritative completion repairs rather than retrying an immutable success report forever
+  ---
+  duration_ms: 521.529205
+  type: 'test'
+  ...
+# Subtest: reports cannot omit retained task custody or arrive after the phase deadline
+ok 70 - reports cannot omit retained task custody or arrive after the phase deadline
+  ---
+  duration_ms: 215.708372
+  type: 'test'
+  ...
+# Subtest: referenced receipts are immutable even when omitted from top-level evidence
+ok 71 - referenced receipts are immutable even when omitted from top-level evidence
+  ---
+  duration_ms: 552.535043
+  type: 'test'
+  ...
+# Subtest: producer-confirmed cleanup resolves old writer custody after its claim and worktree are gone
+ok 72 - producer-confirmed cleanup resolves old writer custody after its claim and worktree are gone
+  ---
+  duration_ms: 153.791289
+  type: 'test'
+  ...
+# Subtest: distinct task source and landing revisions must all belong to their aggregate artifact
+ok 73 - distinct task source and landing revisions must all belong to their aggregate artifact
+  ---
+  duration_ms: 376.468686
+  type: 'test'
+  ...
+# Subtest: real public TM CLI accepts controller assessment and rejects drift after completion
+ok 74 - real public TM CLI accepts controller assessment and rejects drift after completion
+  ---
+  duration_ms: 5120.456154
+  type: 'test'
+  ...
+# Subtest: a prior successful dogfood receipt cannot be replaced before assessment
+ok 75 - a prior successful dogfood receipt cannot be replaced before assessment
+  ---
+  duration_ms: 562.338641
+  type: 'test'
+  ...
+# Subtest: held lead notification retries after publication without sending a second obligation
+ok 76 - held lead notification retries after publication without sending a second obligation
+  ---
+  duration_ms: 92.382594
+  type: 'test'
+  ...
+# Subtest: repair budget permits exactly ten repairs after the initial attempt
+ok 77 - repair budget permits exactly ten repairs after the initial attempt
+  ---
+  duration_ms: 673.183344
+  type: 'test'
+  ...
+# Subtest: typed choices survive object key reordering and cannot approve a different requested scope
+ok 78 - typed choices survive object key reordering and cannot approve a different requested scope
+  ---
+  duration_ms: 152.87557
+  type: 'test'
+  ...
+# Subtest: authoritative resolution of a blocking finding counts as progress despite unchanged proven count
+ok 79 - authoritative resolution of a blocking finding counts as progress despite unchanged proven count
+  ---
+  duration_ms: 893.03407
+  type: 'test'
+  ...
+# Subtest: pause and resume preserve a pending typed decision and stale running state cannot bypass it
+ok 80 - pause and resume preserve a pending typed decision and stale running state cannot bypass it
+  ---
+  duration_ms: 291.79756
+  type: 'test'
+  ...
+# Subtest: TM-442/TM-469 the protected keys are autonomy, release, cutover, required_checks, integrate_via and target_branch
+ok 81 - TM-442/TM-469 the protected keys are autonomy, release, cutover, required_checks, integrate_via and target_branch
+  ---
+  duration_ms: 0.967604
+  type: 'test'
+  ...
+# Subtest: TM-442 a global-layer or local repo-layer grant is ignored with a warning; the server default branch is honoured
+ok 82 - TM-442 a global-layer or local repo-layer grant is ignored with a warning; the server default branch is honoured
+  ---
+  duration_ms: 60.354686
+  type: 'test'
+  ...
+# Subtest: TM-442 argvProblem is an allowlist: interpreters, shells, absolute paths, PATH lookups and .. are refused
+ok 83 - TM-442 argvProblem is an allowlist: interpreters, shells, absolute paths, PATH lookups and .. are refused
+  ---
+  duration_ms: 0.584033
+  type: 'test'
+  ...
+# Subtest: TM-442 the release script must be tracked, executable and unmodified at the release revision
+ok 84 - TM-442 the release script must be tracked, executable and unmodified at the release revision
+  ---
+  duration_ms: 62.711898
+  type: 'test'
+  ...
+# Subtest: TM-442 ao-topology config set refuses in a dispatched worker session; get and validate still work
+ok 85 - TM-442 ao-topology config set refuses in a dispatched worker session; get and validate still work
+  ---
+  duration_ms: 266.773574
+  type: 'test'
+  ...
+# Subtest: TM-469 integrate_via and target_branch from a global or working-copy layer are ignored with a warning
+ok 86 - TM-469 integrate_via and target_branch from a global or working-copy layer are ignored with a warning
+  ---
+  duration_ms: 47.733912
+  type: 'test'
+  ...
+# Subtest: parseArgs defaults to every host
+ok 87 - parseArgs defaults to every host
+  ---
+  duration_ms: 1.154707
+  type: 'test'
+  ...
+# Subtest: pluginRootFromScript walks out of the skill scripts directory
+ok 88 - pluginRootFromScript walks out of the skill scripts directory
+  ---
+  duration_ms: 0.202975
+  type: 'test'
+  ...
+# Subtest: kimi host wiring merges mcp.json and links skills without dropping other servers
+ok 89 - kimi host wiring merges mcp.json and links skills without dropping other servers
+  ---
+  duration_ms: 12.039033
+  type: 'test'
+  ...
+# Subtest: grok host plan uses trusted plugin install and does not run on dry-run
+ok 90 - grok host plan uses trusted plugin install and does not run on dry-run
+  ---
+  duration_ms: 0.400043
+  type: 'test'
+  ...
+# Subtest: Linux network attachment refuses missing, malformed, or unbound namespace identities
+ok 91 - Linux network attachment refuses missing, malformed, or unbound namespace identities
+  ---
+  duration_ms: 1.019655
+  type: 'test'
+  ...
+# Subtest: Linux namespace identities remain arguments to a fixed isolated launcher
+ok 92 - Linux namespace identities remain arguments to a fixed isolated launcher
+  ---
+  duration_ms: 0.408118
+  type: 'test'
+  ...
+# Subtest: installed topology uses its shipped NATS client without node_modules or source siblings
+ok 93 - installed topology uses its shipped NATS client without node_modules or source siblings
+  ---
+  duration_ms: 277.12223
+  type: 'test'
+  ...
+# Subtest: real NATS redelivers before acceptance and durable acceptance survives process exit before ACK
+ok 94 - real NATS redelivers before acceptance and durable acceptance survives process exit before ACK
+  ---
+  duration_ms: 2981.348424
+  type: 'test'
+  ...
+# Subtest: held standing obligation is actually published on recovery and retries retain one accepted obligation
+ok 95 - held standing obligation is actually published on recovery and retries retain one accepted obligation
+  ---
+  duration_ms: 2292.831204
+  type: 'test'
+  ...
+# Subtest: uncertain sender publish recovers after broker dedup window without duplicate recipient obligation
+ok 96 - uncertain sender publish recovers after broker dedup window without duplicate recipient obligation
+  ---
+  duration_ms: 2332.35456
+  type: 'test'
+  ...
+# Subtest: run replies remain available to a second waiter process after broker ACK
+ok 97 - run replies remain available to a second waiter process after broker ACK
+  ---
+  duration_ms: 1806.910178
+  type: 'test'
+  ...
+# Subtest: TM-371: published mail carries a readable Orch-Repo-Slug header; the subject keeps its digest
+ok 98 - TM-371: published mail carries a readable Orch-Repo-Slug header; the subject keeps its digest
+  ---
+  duration_ms: 112.314628
+  type: 'test'
+  ...
+# Subtest: TM-371: repoSlug names the checkout for <repo>/.git, a bare repo by its name, and is header-safe
+ok 99 - TM-371: repoSlug names the checkout for <repo>/.git, a bare repo by its name, and is header-safe
+  ---
+  duration_ms: 0.281874
+  type: 'test'
+  ...
+# Subtest: accepted obligation survives ACK crash and repeated delivery without duplicate work
+ok 100 - accepted obligation survives ACK crash and repeated delivery without duplicate work
+  ---
+  duration_ms: 118.408379
+  type: 'test'
+  ...
+# Subtest: changed immutable content and foreign recipient are quarantined, never accepted; deferred obligations stay visible
+ok 101 - changed immutable content and foreign recipient are quarantined, never accepted; deferred obligations stay visible
+  ---
+  duration_ms: 121.881523
+  type: 'test'
+  ...
+# Subtest: publication intent survives broker failure and sender retry deduplicates beyond broker window
+ok 102 - publication intent survives broker failure and sender retry deduplicates beyond broker window
+  ---
+  duration_ms: 123.429164
+  type: 'test'
+  ...
+# Subtest: legacy file standing receive keeps its envelope and records a durable accepted obligation
+ok 103 - legacy file standing receive keeps its envelope and records a durable accepted obligation
+  ---
+  duration_ms: 162.741663
+  type: 'test'
+  ...
+# Subtest: publication view separates sender PubAck from receipt and filters source identity without transport calls
+ok 104 - publication view separates sender PubAck from receipt and filters source identity without transport calls
+  ---
+  duration_ms: 98.777056
+  type: 'test'
+  ...
+# Subtest: uncertain standing publication stays inspectable and resume records delivered only after PubAck
+ok 105 - uncertain standing publication stays inspectable and resume records delivered only after PubAck
+  ---
+  duration_ms: 71.024987
+  type: 'test'
+  ...
+# Subtest: TM-482: an invalid message ahead of a valid one is quarantined and termed; the valid one is delivered
+ok 106 - TM-482: an invalid message ahead of a valid one is quarantined and termed; the valid one is delivered
+  ---
+  duration_ms: 118.029555
+  type: 'test'
+  ...
+# Subtest: TM-483: a failed publish retry is recorded with backoff, the tick survives, and a due tick retries
+ok 107 - TM-483: a failed publish retry is recorded with backoff, the tick survives, and a due tick retries
+  ---
+  duration_ms: 747.990903
+  type: 'test'
+  ...
+# Subtest: F1: mailbox resume prints the failures it collected and exits non-zero
+ok 108 - F1: mailbox resume prints the failures it collected and exits non-zero
+  ---
+  duration_ms: 114.313947
+  type: 'test'
+  ...
+# Subtest: F2: a different sender reusing a reply ID gets its own receipt and cannot squat the real reply
+ok 109 - F2: a different sender reusing a reply ID gets its own receipt and cannot squat the real reply
+  ---
+  duration_ms: 107.423812
+  type: 'test'
+  ...
+# Subtest: F2: a run recreated in the same directory never reuses wire message IDs
+ok 110 - F2: a run recreated in the same directory never reuses wire message IDs
+  ---
+  duration_ms: 0.551701
+  type: 'test'
+  ...
+# Subtest: F3: pages are limited to one per repository, agent and code per hour, with a running count; dead letters are capped
+ok 111 - F3: pages are limited to one per repository, agent and code per hour, with a running count; dead letters are capped
+  ---
+  duration_ms: 10561.343703
+  type: 'test'
+  ...
+# Subtest: F4: a dead letter written but never paged (a crash in between) is paged on redelivery
+ok 112 - F4: a dead letter written but never paged (a crash in between) is paged on redelivery
+  ---
+  duration_ms: 34.997591
+  type: 'test'
+  ...
+# Subtest: F5: an EACCES publication file is skipped and reported; the other publications still retry
+ok 113 - F5: an EACCES publication file is skipped and reported; the other publications still retry
+  ---
+  duration_ms: 42.701913
+  type: 'test'
+  ...
+# Subtest: F5: a publication sweep that fails outright keeps the standing results already resumed
+ok 114 - F5: a publication sweep that fails outright keeps the standing results already resumed
+  ---
+  duration_ms: 133.03178
+  type: 'test'
+  ...
+# Subtest: N1: a corrupt file in receipts/ does not stop disposal of an unrelated message
+ok 115 - N1: a corrupt file in receipts/ does not stop disposal of an unrelated message
+  ---
+  duration_ms: 94.013526
+  type: 'test'
+  ...
+# Subtest: N2: the CLI and MCP can name the receipt whose sender is null when an ID is ambiguous
+ok 116 - N2: the CLI and MCP can name the receipt whose sender is null when an ID is ambiguous
+  ---
+  duration_ms: 567.34251
+  type: 'test'
+  ...
+# Subtest: N3: a failing escalation is reported and the standing results are kept
+ok 117 - N3: a failing escalation is reported and the standing results are kept
+  ---
+  duration_ms: 120.796299
+  type: 'test'
+  ...
+# Subtest: public MCP surface exposes exactly the orchestration-prefixed contract
+ok 118 - public MCP surface exposes exactly the orchestration-prefixed contract
+  ---
+  duration_ms: 157.46983
+  type: 'test'
+  ...
+# Subtest: MCP plan and spawn expose protocols while route remains a single-route preview
+ok 119 - MCP plan and spawn expose protocols while route remains a single-route preview
+  ---
+  duration_ms: 81.343946
+  type: 'test'
+  ...
+# Subtest: every MCP tool publishes a concrete forward-compatible success/error envelope
+ok 120 - every MCP tool publishes a concrete forward-compatible success/error envelope
+  ---
+  duration_ms: 81.364759
+  type: 'test'
+  ...
+# Subtest: concrete output schemas preserve serialized operation errors
+ok 121 - concrete output schemas preserve serialized operation errors
+  ---
+  duration_ms: 16.986769
+  type: 'test'
+  ...
+# Subtest: TM-352: orchestration_mailbox_wait returns a standing reply and refuses an unknown id
+ok 122 - TM-352: orchestration_mailbox_wait returns a standing reply and refuses an unknown id
+  ---
+  duration_ms: 421.980005
+  type: 'test'
+  ...
+# Subtest: TM-355: run follow-up and run wait have new names; the old names stay as aliases
+ok 123 - TM-355: run follow-up and run wait have new names; the old names stay as aliases
+  ---
+  duration_ms: 181.866138
+  type: 'test'
+  ...
+# Subtest: TM-355: run mail send, wait and reply act as the session's own agent
+ok 124 - TM-355: run mail send, wait and reply act as the session's own agent
+  ---
+  duration_ms: 1282.744627
+  type: 'test'
+  ...
+# Subtest: TM-355: lead status cached answers fast and mints no probe
+ok 125 - TM-355: lead status cached answers fast and mints no probe
+  ---
+  duration_ms: 99.739356
+  type: 'test'
+  ...
+# Subtest: TM-355/TM-463: session handoff runs the session handoff verb, and only for the lead or the agent itself
+ok 126 - TM-355/TM-463: session handoff runs the session handoff verb, and only for the lead or the agent itself
+  ---
+  duration_ms: 313.603575
+  type: 'test'
+  ...
+# Subtest: serverConfig exposes no system account and no anonymous user
+ok 127 - serverConfig exposes no system account and no anonymous user
+  ---
+  duration_ms: 1.087628
+  type: 'test'
+  ...
+# Subtest: ensureLocalNats starts once, reuses, and refuses bad credentials
+ok 128 - ensureLocalNats starts once, reuses, and refuses bad credentials
+  ---
+  duration_ms: 1330.344776
+  type: 'test'
+  ...
+# Subtest: a managed process never starts a detached server beside the managed one (TM-277)
+ok 129 - a managed process never starts a detached server beside the managed one (TM-277)
+  ---
+  duration_ms: 9.467538
+  type: 'test'
+  ...
+# Subtest: redactUrl drops credentials and keeps host and port
+ok 130 - redactUrl drops credentials and keeps host and port
+  ---
+  duration_ms: 0.88131
+  type: 'test'
+  ...
+# Subtest: redactUrl fails closed on server lists and malformed URLs
+ok 131 - redactUrl fails closed on server lists and malformed URLs
+  ---
+  duration_ms: 0.569639
+  type: 'test'
+  ...
+# Subtest: a dead AO_NATS_URL falls back to managed local and mails the lead once, then once on recovery
+ok 132 - a dead AO_NATS_URL falls back to managed local and mails the lead once, then once on recovery
+  ---
+  duration_ms: 2716.716336
+  type: 'test'
+  ...
+# Subtest: an open from an env without AO_NATS_URL does not close the dead AO_NATS_URL outage: one outage mail, no recovery mail
+ok 133 - an open from an env without AO_NATS_URL does not close the dead AO_NATS_URL outage: one outage mail, no recovery mail
+  ---
+  duration_ms: 330.044448
+  type: 'test'
+  ...
+# Subtest: openNatsTransport records the selection under the caller's home, not the process home
+ok 134 - openNatsTransport records the selection under the caller's home, not the process home
+  ---
+  duration_ms: 171.364338
+  type: 'test'
+  ...
+# Subtest: a configured server that accepts TCP but refuses NATS is re-dialled with backoff, not every tick
+ok 135 - a configured server that accepts TCP but refuses NATS is re-dialled with backoff, not every tick
+  ---
+  duration_ms: 453.370331
+  type: 'test'
+  ...
+# Subtest: an outage nothing falls back from any more is retired after the bound: one closing mail, doctor clears, no re-dials
+ok 136 - an outage nothing falls back from any more is retired after the bound: one closing mail, doctor clears, no re-dials
+  ---
+  duration_ms: 659.172145
+  type: 'test'
+  ...
+# Subtest: a non-supervisor holding the fallback keeps its outage open; closing it lets the outage retire
+ok 137 - a non-supervisor holding the fallback keeps its outage open; closing it lets the outage retire
+  ---
+  duration_ms: 4148.121551
+  type: 'test'
+  ...
+# Subtest: C2: recovery waits for the last fallback holder; the lead gets one outage and one recovery, read from its inbox
+ok 138 - C2: recovery waits for the last fallback holder; the lead gets one outage and one recovery, read from its inbox
+  ---
+  duration_ms: 3705.430918
+  type: 'test'
+  ...
+# Subtest: C3/C6: a configured server without JetStream is neither probed as back nor recorded as recovered
+ok 139 - C3/C6: a configured server without JetStream is neither probed as back nor recorded as recovered
+  ---
+  duration_ms: 409.819487
+  type: 'test'
+  ...
+# Subtest: C6: a configured port that only accepts TCP is never re-dialled
+ok 140 - C6: a configured port that only accepts TCP is never re-dialled
+  ---
+  duration_ms: 2033.623233
+  type: 'test'
+  ...
+# Subtest: C4/C5: a transport.json write that fails is surfaced on the selection and in the start-log view
+ok 141 - C4/C5: a transport.json write that fails is surfaced on the selection and in the start-log view
+  ---
+  duration_ms: 145.708071
+  type: 'test'
+  ...
+# Subtest: C5: the start-log view is this connection's selection, not whatever transport.json says now
+ok 142 - C5: the start-log view is this connection's selection, not whatever transport.json says now
+  ---
+  duration_ms: 0.301132
+  type: 'test'
+  ...
+# Subtest: B2: concurrent read-modify-writes of transport.json lose nothing
+ok 143 - B2: concurrent read-modify-writes of transport.json lose nothing
+  ---
+  duration_ms: 315.987982
+  type: 'test'
+  ...
+# Subtest: B3: text services status names the transport and an open outage
+ok 144 - B3: text services status names the transport and an open outage
+  ---
+  duration_ms: 0.437649
+  type: 'test'
+  ...
+# Subtest: no credential from a single, list or malformed AO_NATS_URL reaches transport.json, doctor, status, the start log or lead mail
+ok 145 - no credential from a single, list or malformed AO_NATS_URL reaches transport.json, doctor, status, the start log or lead mail
+  ---
+  duration_ms: 4035.147604
+  type: 'test'
+  ...
+# Subtest: nats.port validation rejects 80, 70000 and "abc", and accepts 45200
+ok 146 - nats.port validation rejects 80, 70000 and "abc", and accepts 45200
+  ---
+  duration_ms: 8.410446
+  type: 'test'
+  ...
+# Subtest: first managed start writes nats.port in the high range; later starts and a re-rendered project reuse it
+ok 147 - first managed start writes nats.port in the high range; later starts and a re-rendered project reuse it
+  ---
+  duration_ms: 466.635167
+  type: 'test'
+  ...
+# Subtest: a nats.port held by another process is refused with the holder named, reported in status, doctor and to the lead
+ok 148 - a nats.port held by another process is refused with the holder named, reported in status, doctor and to the lead
+  ---
+  duration_ms: 2190.008652
+  type: 'test'
+  ...
+# Subtest: NATS_URL is not an ao source: an unreachable one causes no fallback and no outage, and is named once as ignored
+ok 149 - NATS_URL is not an ao source: an unreachable one causes no fallback and no outage, and is named once as ignored
+  ---
+  duration_ms: 144.285088
+  type: 'test'
+  ...
+# Subtest: migration adopts a free state.json port; an invalid or foreign-held one is not adopted
+ok 150 - migration adopts a free state.json port; an invalid or foreign-held one is not adopted
+  ---
+  duration_ms: 1029.902451
+  type: 'test'
+  ...
+# Subtest: a NATS_URL outage written by an older ao is ignored by doctor, status and the tick, and cleared by a managed open
+ok 151 - a NATS_URL outage written by an older ao is ignored by doctor, status and the tick, and cleared by a managed open
+  ---
+  duration_ms: 204.125531
+  type: 'test'
+  ...
+# Subtest: unset AO_TRANSPORT selects NATS, not the file double
+ok 152 - unset AO_TRANSPORT selects NATS, not the file double
+  ---
+  duration_ms: 1.016558
+  type: 'test'
+  ...
+# Subtest: file transport drops acked mail and verdict timers
+ok 153 - file transport drops acked mail and verdict timers
+  ---
+  duration_ms: 33.864036
+  type: 'test'
+  ...
+# CASE mail subject=orch.05f3562be3b55e88.mail.agent-b bucket=ORCH_MAIL inboxStat=present body=one
+# CASE probe subject=orch.05f3562be3b55e88.probe.reviewer-1 ready=true
+# CASE verdict subject=orch.05f3562be3b55e88.review.nonce-one
+# CASE mail subject=orch.520ae04f3d656d01.mail.agent-b bucket=ORCH_MAIL inboxStat=present body=two
+# CASE probe subject=orch.520ae04f3d656d01.probe.reviewer-1 ready=true
+# CASE verdict subject=orch.520ae04f3d656d01.review.nonce-two
+# CASE reply subject=orch.900a1d42a8cdf264.mail.conductor.reply inboxSubject=orch.900a1d42a8cdf264.mail.conductor outboxStat=ENOENT
+# CASE gap subject=orch.62523a3d3ef3896b.mail.agent-b inboxStat=present
+# CASE memory heapDeltaBytes=-465928
+# Subtest: NATS cases pass twice, survive a reconnect, and release the client
+ok 154 - NATS cases pass twice, survive a reconnect, and release the client
+  ---
+  duration_ms: 17288.312355
+  type: 'test'
+  ...
+# Subtest: TM-376: every CLI verb, sub-verb and flag the router names exists
+ok 155 - TM-376: every CLI verb, sub-verb and flag the router names exists
+  ---
+  duration_ms: 4.534841
+  type: 'test'
+  ...
+# Subtest: TM-376: every MCP tool the router names is registered
+ok 156 - TM-376: every MCP tool the router names is registered
+  ---
+  duration_ms: 1.228235
+  type: 'test'
+  ...
+# Subtest: TM-376: every skill the router names exists, and task-management's route points here
+ok 157 - TM-376: every skill the router names exists, and task-management's route points here
+  ---
+  duration_ms: 0.947744
+  type: 'test'
+  ...
+# Subtest: Linux doctor fails closed when namespace owner attachment dependencies are missing
+ok 158 - Linux doctor fails closed when namespace owner attachment dependencies are missing
+  ---
+  duration_ms: 2.306428
+  type: 'test'
+  ...
+# Subtest: Abstract Factory selects the native Linux strategy family
+ok 159 - Abstract Factory selects the native Linux strategy family
+  ---
+  duration_ms: 0.537834
+  type: 'test'
+  ...
+# Subtest: Abstract Factory selects the native Windows strategy family
+ok 160 - Abstract Factory selects the native Windows strategy family
+  ---
+  duration_ms: 0.327395
+  type: 'test'
+  ...
+# Subtest: explicit Windows host backend selection is deterministic
+ok 161 - explicit Windows host backend selection is deterministic
+  ---
+  duration_ms: 0.380404
+  type: 'test'
+  ...
+# Subtest: WSL Adapter checks the Linux security stack and translates the entrypoint
+ok 162 - WSL Adapter checks the Linux security stack and translates the entrypoint
+  ---
+  duration_ms: 0.814091
+  type: 'test'
+  ...
+# Subtest: WSL Adapter fails closed when an isolation dependency is missing
+ok 163 - WSL Adapter fails closed when an isolation dependency is missing
+  ---
+  duration_ms: 0.690681
+  type: 'test'
+  ...
+# Subtest: WSL path Adapter translates only absolute Windows paths
+ok 164 - WSL path Adapter translates only absolute Windows paths
+  ---
+  duration_ms: 0.439871
+  type: 'test'
+  ...
+# Subtest: Windows executable Strategy honors PATHEXT without invoking a shell
+ok 165 - Windows executable Strategy honors PATHEXT without invoking a shell
+  ---
+  duration_ms: 10.627511
+  type: 'test'
+  ...
+# Subtest: TM-373: a cache entry behind origin/main is stale and says how to update
+ok 166 - TM-373: a cache entry behind origin/main is stale and says how to update
+  ---
+  duration_ms: 25.295207
+  type: 'test'
+  ...
+# Subtest: TM-373: a cache entry at origin/main is current
+ok 167 - TM-373: a cache entry at origin/main is current
+  ---
+  duration_ms: 5.707898
+  type: 'test'
+  ...
+# Subtest: TM-373: offline or timed out is unknown, never a failure
+ok 168 - TM-373: offline or timed out is unknown, never a failure
+  ---
+  duration_ms: 5.80769
+  type: 'test'
+  ...
+# Subtest: TM-443: a manifest repository that looks like an option is never read as one
+ok 169 - TM-443: a manifest repository that looks like an option is never read as one
+  ---
+  duration_ms: 19.487463
+  type: 'test'
+  ...
+# Subtest: a consumer's providers/ cannot replace the command a pane runs
+ok 170 - a consumer's providers/ cannot replace the command a pane runs
+  ---
+  duration_ms: 11.636126
+  type: 'test'
+  ...
+# Subtest: the user's config and an explicit --providers-dir still override the plugin
+ok 171 - the user's config and an explicit --providers-dir still override the plugin
+  ---
+  duration_ms: 0.8639
+  type: 'test'
+  ...
+# Subtest: this run is guarded: every catalog provider command resolves to a shim
+ok 172 - this run is guarded: every catalog provider command resolves to a shim
+  ---
+  duration_ms: 21.489181
+  type: 'test'
+  ...
+# Subtest: a shim records the spawn and refuses with 127
+ok 173 - a shim records the spawn and refuses with 127
+  ---
+  duration_ms: 4.634023
+  type: 'test'
+  ...
+# Subtest: a run that spawns a provider exits non-zero and names the test; a clean run exits 0
+ok 174 - a run that spawns a provider exits non-zero and names the test; a clean run exits 0
+  ---
+  duration_ms: 70.029447
+  type: 'test'
+  ...
+# Subtest: initTempRepo opts out of enrollment by default, and only by default
+ok 175 - initTempRepo opts out of enrollment by default, and only by default
+  ---
+  duration_ms: 40.585201
+  type: 'test'
+  ...
+# Subtest: Codex sandbox always uses agent-full-access regardless of mount profile
+ok 176 - Codex sandbox always uses agent-full-access regardless of mount profile
+  ---
+  duration_ms: 19.627737
+  type: 'test'
+  ...
+# Subtest: Claude sandbox HOME is the provider config dir, not the unmounted host home
+ok 177 - Claude sandbox HOME is the provider config dir, not the unmounted host home
+  ---
+  duration_ms: 6.523286
+  type: 'test'
+  ...
+# Subtest: Grok sandbox always passes --always-approve
+ok 178 - Grok sandbox always passes --always-approve
+  ---
+  duration_ms: 7.78174
+  type: 'test'
+  ...
+# Subtest: non-Codex sandboxes do not receive INITIAL_AGENT_MODE
+ok 179 - non-Codex sandboxes do not receive INITIAL_AGENT_MODE
+  ---
+  duration_ms: 4.93357
+  type: 'test'
+  ...
+# Subtest: write provider sandboxes make only the worktree writable and remount Git metadata read-only
+ok 180 - write provider sandboxes make only the worktree writable and remount Git metadata read-only
+  ---
+  duration_ms: 7.705466
+  type: 'test'
+  ...
+# Subtest: provider sandbox without credentials protects home ancestors without inventing an auth mount
+ok 181 - provider sandbox without credentials protects home ancestors without inventing an auth mount
+  ---
+  duration_ms: 3.032019
+  type: 'test'
+  ...
+# Subtest: sandbox execution revalidates provider-specific executable authority
+ok 182 - sandbox execution revalidates provider-specific executable authority
+  ---
+  duration_ms: 2.521663
+  type: 'test'
+  ...
+# Subtest: ACP proxy releases pipelined prompts after bootstrap and revokes on close
+ok 183 - ACP proxy releases pipelined prompts after bootstrap and revokes on close
+  ---
+  duration_ms: 5.888054
+  type: 'test'
+  ...
+# Subtest: ACP proxy rejects prompts before any session establishment
+ok 184 - ACP proxy rejects prompts before any session establishment
+  ---
+  duration_ms: 1.736232
+  type: 'test'
+  ...
+# Subtest: removeTree deletes a tree containing a read-only Go module cache
+ok 185 - removeTree deletes a tree containing a read-only Go module cache
+  ---
+  duration_ms: 10.959786
+  type: 'test'
+  ...
+# Subtest: removeTree does not follow symlinked directories out of the tree
+ok 186 - removeTree does not follow symlinked directories out of the tree
+  ---
+  duration_ms: 5.61015
+  type: 'test'
+  ...
+# Subtest: removeTree is a no-op for a path that is already gone
+ok 187 - removeTree is a no-op for a path that is already gone
+  ---
+  duration_ms: 1.040007
+  type: 'test'
+  ...
+# Subtest: consumerCwd is required and never falls back to the plugin process cwd
+ok 188 - consumerCwd is required and never falls back to the plugin process cwd
+  ---
+  duration_ms: 47.149993
+  type: 'test'
+  ...
+# Subtest: linked consumer worktrees have distinct run authority keys
+ok 189 - linked consumer worktrees have distinct run authority keys
+  ---
+  duration_ms: 90.938636
+  type: 'test'
+  ...
+# Subtest: worktrees derive from the consumer repository sibling and register only there
+ok 190 - worktrees derive from the consumer repository sibling and register only there
+  ---
+  duration_ms: 121.034372
+  type: 'test'
+  ...
+# Subtest: cleanup rejects a sibling worktree path and a mismatched ownership nonce
+ok 191 - cleanup rejects a sibling worktree path and a mismatched ownership nonce
+  ---
+  duration_ms: 166.023396
+  type: 'test'
+  ...
+# Subtest: cleanup verifies the marker hash, base SHA, and exact Git administration entry
+ok 192 - cleanup verifies the marker hash, base SHA, and exact Git administration entry
+  ---
+  duration_ms: 137.090893
+  type: 'test'
+  ...
+# Subtest: the marketplace checkout containing the plugin source is rejected as a consumer
+ok 193 - the marketplace checkout containing the plugin source is rejected as a consumer
+  ---
+  duration_ms: 38.948658
+  type: 'test'
+  ...
+# Subtest: a Gateway-shaped unrelated marketplace is a valid consumer
+ok 194 - a Gateway-shaped unrelated marketplace is a valid consumer
+  ---
+  duration_ms: 58.929147
+  type: 'test'
+  ...
+# Subtest: actual orchestration payload and its aliases and older linked worktrees are rejected
+ok 195 - actual orchestration payload and its aliases and older linked worktrees are rejected
+  ---
+  duration_ms: 147.746531
+  type: 'test'
+  ...
+# Subtest: dirty tracked and untracked consumers are rejected for write orchestration
+ok 196 - dirty tracked and untracked consumers are rejected for write orchestration
+  ---
+  duration_ms: 61.340472
+  type: 'test'
+  ...
+# Subtest: the checked-in roadmap is valid and preserves the canonical seed inventory
+ok 197 - the checked-in roadmap is valid and preserves the canonical seed inventory
+  ---
+  duration_ms: 63.675722
+  type: 'test'
+  ...
+# Subtest: parsing, derived indexes, and generated views are deterministic
+ok 198 - parsing, derived indexes, and generated views are deterministic
+  ---
+  duration_ms: 20.158916
+  type: 'test'
+  ...
+# Subtest: hard dependency cycles report the explicit cycle path
+ok 199 - hard dependency cycles report the explicit cycle path
+  ---
+  duration_ms: 30.770832
+  type: 'test'
+  ...
+# Subtest: task and outgoing unlock reciprocity cannot drift
+ok 200 - task and outgoing unlock reciprocity cannot drift
+  ---
+  duration_ms: 31.516377
+  type: 'test'
+  ...
+# Subtest: a preferred one-hop trajectory is rejected with an actionable distance error
+ok 201 - a preferred one-hop trajectory is rejected with an actionable distance error
+  ---
+  duration_ms: 26.16557
+  type: 'test'
+  ...
+# Subtest: orphan strategic references identify the missing object
+ok 202 - orphan strategic references identify the missing object
+  ---
+  duration_ms: 21.987112
+  type: 'test'
+  ...
+# Subtest: duplicate live trajectories for one goal are rejected
+ok 203 - duplicate live trajectories for one goal are rejected
+  ---
+  duration_ms: 21.751604
+  type: 'test'
+  ...
+# Subtest: strategic records cannot grant agents execution or budget authority
+ok 204 - strategic records cannot grant agents execution or budget authority
+  ---
+  duration_ms: 21.871406
+  type: 'test'
+  ...
+# Subtest: source seams must remain inside the plugin and identify real source
+ok 205 - source seams must remain inside the plugin and identify real source
+  ---
+  duration_ms: 22.651113
+  type: 'test'
+  ...
+# Subtest: source seam manifests support installed caches and detect source-checkout drift
+ok 206 - source seam manifests support installed caches and detect source-checkout drift
+  ---
+  duration_ms: 35.996951
+  type: 'test'
+  ...
+# Subtest: source manifest generation is deterministic and matches the checked-in inventory
+ok 207 - source manifest generation is deterministic and matches the checked-in inventory
+  ---
+  duration_ms: 9.044823
+  type: 'test'
+  ...
+# Subtest: source manifest generation fails closed for installed, missing, and invalid sources
+ok 208 - source manifest generation fails closed for installed, missing, and invalid sources
+  ---
+  duration_ms: 8.917789
+  type: 'test'
+  ...
+# Subtest: mutating CLI commands use their plugin root and leave installed artifacts untouched
+ok 209 - mutating CLI commands use their plugin root and leave installed artifacts untouched
+  ---
+  duration_ms: 138.219062
+  type: 'test'
+  ...
+# Subtest: a disconnected preferred route cannot masquerade as a materialized trajectory
+ok 210 - a disconnected preferred route cannot masquerade as a materialized trajectory
+  ---
+  duration_ms: 20.554543
+  type: 'test'
+  ...
+# Subtest: checked-in Mermaid and trajectory views cannot drift from canonical records
+ok 211 - checked-in Mermaid and trajectory views cannot drift from canonical records
+  ---
+  duration_ms: 75.797182
+  type: 'test'
+  ...
+# Subtest: unknown multi-hop distance remains valid for research trajectories and gaps
+ok 212 - unknown multi-hop distance remains valid for research trajectories and gaps
+  ---
+  duration_ms: 25.850977
+  type: 'test'
+  ...
+# Subtest: approved strategy records require explicit human approval provenance
+ok 213 - approved strategy records require explicit human approval provenance
+  ---
+  duration_ms: 32.041061
+  type: 'test'
+  ...
+# Subtest: retired or invalidated trajectories cannot remain preferred
+ok 214 - retired or invalidated trajectories cannot remain preferred
+  ---
+  duration_ms: 32.689835
+  type: 'test'
+  ...
+# Subtest: gap materialization and evidence must match lifecycle state
+ok 215 - gap materialization and evidence must match lifecycle state
+  ---
+  duration_ms: 31.133485
+  type: 'test'
+  ...
+# Subtest: realized trajectories and attained goals require completed, validated evidence
+ok 216 - realized trajectories and attained goals require completed, validated evidence
+  ---
+  duration_ms: 31.611489
+  type: 'test'
+  ...
+# Subtest: trajectory selections admit only hard and bridge edges
+ok 217 - trajectory selections admit only hard and bridge edges
+  ---
+  duration_ms: 33.295493
+  type: 'test'
+  ...
+# Subtest: trajectory roots, reachability, and global hard prerequisites are enforced
+ok 218 - trajectory roots, reachability, and global hard prerequisites are enforced
+  ---
+  duration_ms: 59.019672
+  type: 'test'
+  ...
+# Subtest: task counts and preferred estimates must fit declared ranges
+ok 219 - task counts and preferred estimates must fit declared ranges
+  ---
+  duration_ms: 56.204874
+  type: 'test'
+  ...
+# Subtest: append-only inventory preserves every ID and kind-specific identity
+ok 220 - append-only inventory preserves every ID and kind-specific identity
+  ---
+  duration_ms: 24.177418
+  type: 'test'
+  ...
+# Subtest: inventory appends only contiguous namespace suffixes and unions valid additions
+ok 221 - inventory appends only contiguous namespace suffixes and unions valid additions
+  ---
+  duration_ms: 45.76517
+  type: 'test'
+  ...
+# Subtest: future tasks need an active incident edge but no trajectory membership
+ok 222 - future tasks need an active incident edge but no trajectory membership
+  ---
+  duration_ms: 57.268452
+  type: 'test'
+  ...
+# Subtest: inventory append validates prospective roadmap semantics without mutating its input
+ok 223 - inventory append validates prospective roadmap semantics without mutating its input
+  ---
+  duration_ms: 63.273569
+  type: 'test'
+  ...
+# Subtest: append-inventory CLI writes only a fully validated prospective inventory
+ok 224 - append-inventory CLI writes only a fully validated prospective inventory
+  ---
+  duration_ms: 198.52599
+  type: 'test'
+  ...
+# Subtest: documented maintenance sequence handles new IDs plus source drift end to end
+ok 225 - documented maintenance sequence handles new IDs plus source drift end to end
+  ---
+  duration_ms: 920.821577
+  type: 'test'
+  ...
+# Subtest: gap fillers are reciprocal, goal-local lineage owned by the parent trajectory
+ok 226 - gap fillers are reciprocal, goal-local lineage owned by the parent trajectory
+  ---
+  duration_ms: 77.012897
+  type: 'test'
+  ...
+# Subtest: filled gaps require completed fillers, exact completion evidence, and cleared nextGapId
+ok 227 - filled gaps require completed fillers, exact completion evidence, and cleared nextGapId
+  ---
+  duration_ms: 38.841931
+  type: 'test'
+  ...
+# Subtest: operational strategic state always rests on an approved human decision
+ok 228 - operational strategic state always rests on an approved human decision
+  ---
+  duration_ms: 55.008353
+  type: 'test'
+  ...
+# Subtest: done tasks require completion evidence distinct from baseline evidence
+ok 229 - done tasks require completion evidence distinct from baseline evidence
+  ---
+  duration_ms: 55.327967
+  type: 'test'
+  ...
+# Subtest: hop ranges reject alternate or extra field shapes
+ok 230 - hop ranges reject alternate or extra field shapes
+  ---
+  duration_ms: 69.560451
+  type: 'test'
+  ...
+# Subtest: object source seams must use anchors that occur exactly once
+ok 231 - object source seams must use anchors that occur exactly once
+  ---
+  duration_ms: 4.11054
+  type: 'test'
+  ...
+# Subtest: canonical generated views recover every stale marked projection
+ok 232 - canonical generated views recover every stale marked projection
+  ---
+  duration_ms: 41.638071
+  type: 'test'
+  ...
+# Subtest: CLI accepts only the canonical roadmap path and prints stale canonical views
+ok 233 - CLI accepts only the canonical roadmap path and prints stale canonical views
+  ---
+  duration_ms: 205.268796
+  type: 'test'
+  ...
+# Subtest: trajectory reachability derives from the full declared gap set and lifecycle
+ok 234 - trajectory reachability derives from the full declared gap set and lifecycle
+  ---
+  duration_ms: 17.40687
+  type: 'test'
+  ...
+# Subtest: same-kind supersession permits acyclic chains to a live terminal
+ok 235 - same-kind supersession permits acyclic chains to a live terminal
+  ---
+  duration_ms: 76.334674
+  type: 'test'
+  ...
+# Subtest: active projections ignore superseded history while retired routes retain it
+ok 236 - active projections ignore superseded history while retired routes retain it
+  ---
+  duration_ms: 43.702663
+  type: 'test'
+  ...
+# Subtest: history-only reverse edges cannot introduce an operational dependency cycle
+ok 237 - history-only reverse edges cannot introduce an operational dependency cycle
+  ---
+  duration_ms: 55.119638
+  type: 'test'
+  ...
+# Subtest: live routes reject history-only selections and active edges reject superseded endpoints
+ok 238 - live routes reject history-only selections and active edges reject superseded endpoints
+  ---
+  duration_ms: 58.691704
+  type: 'test'
+  ...
+# Subtest: superseded gaps remain reciprocal history on retired trajectories
+ok 239 - superseded gaps remain reciprocal history on retired trajectories
+  ---
+  duration_ms: 18.826128
+  type: 'test'
+  ...
+# Subtest: retired goals may retain their retired preferred trajectory as history
+ok 240 - retired goals may retain their retired preferred trajectory as history
+  ---
+  duration_ms: 19.082932
+  type: 'test'
+  ...
+# Subtest: capability keys are globally unique across roadmap record kinds
+ok 241 - capability keys are globally unique across roadmap record kinds
+  ---
+  duration_ms: 25.296724
+  type: 'test'
+  ...
+# Subtest: inventory schema and append reject cross-kind capability collisions
+ok 242 - inventory schema and append reject cross-kind capability collisions
+  ---
+  duration_ms: 2.17116
+  type: 'test'
+  ...
+# Subtest: supersession chains may traverse retired records but must terminate live
+ok 243 - supersession chains may traverse retired records but must terminate live
+  ---
+  duration_ms: 39.444046
+  type: 'test'
+  ...
+# Subtest: retired gaps preserve completion evidence and retired child lineage
+ok 244 - retired gaps preserve completion evidence and retired child lineage
+  ---
+  duration_ms: 18.700594
+  type: 'test'
+  ...
+# Subtest: active gaps reject completion history or retired children, and retired gaps reject live children
+ok 245 - active gaps reject completion history or retired children, and retired gaps reject live children
+  ---
+  duration_ms: 53.149546
+  type: 'test'
+  ...
+# Subtest: provider catalog exposes only canonical ACPX targets and no commands
+ok 246 - provider catalog exposes only canonical ACPX targets and no commands
+  ---
+  duration_ms: 1.062236
+  type: 'test'
+  ...
+# Subtest: documented model IDs are isolated from runtime-only Grok and Kimi defaults
+ok 247 - documented model IDs are isolated from runtime-only Grok and Kimi defaults
+  ---
+  duration_ms: 0.131282
+  type: 'test'
+  ...
+# Subtest: bundled Claude ACP bridge isolates settings and forwards exact runtime model IDs
+ok 248 - bundled Claude ACP bridge isolates settings and forwards exact runtime model IDs
+  ---
+  duration_ms: 11.83642
+  type: 'test'
+  ...
+# Subtest: bundled Codex bridge launches app-server without a shell
+ok 249 - bundled Codex bridge launches app-server without a shell
+  ---
+  duration_ms: 3.454568
+  type: 'test'
+  ...
+# Subtest: default aliases preserve the agreed architecture, design, and implementation order
+ok 250 - default aliases preserve the agreed architecture, design, and implementation order
+  ---
+  duration_ms: 0.360128
+  type: 'test'
+  ...
+# Subtest: provider capabilities and sandbox credential inputs are explicit metadata
+ok 251 - provider capabilities and sandbox credential inputs are explicit metadata
+  ---
+  duration_ms: 0.251804
+  type: 'test'
+  ...
+# Subtest: architecture plan is adversarial, cross-provider, max effort, and session-stable
+ok 252 - architecture plan is adversarial, cross-provider, max effort, and session-stable
+  ---
+  duration_ms: 9.543165
+  type: 'test'
+  ...
+# Subtest: architecture blocks when the required independent Sol adversary is unavailable
+ok 253 - architecture blocks when the required independent Sol adversary is unavailable
+  ---
+  duration_ms: 1.498579
+  type: 'test'
+  ...
+# Subtest: non-architecture intent uses the single protocol
+ok 254 - non-architecture intent uses the single protocol
+  ---
+  duration_ms: 0.684272
+  type: 'test'
+  ...
+# Subtest: architecture protocol rejects a contradictory intent
+ok 255 - architecture protocol rejects a contradictory intent
+  ---
+  duration_ms: 0.605201
+  type: 'test'
+  ...
+# Subtest: architecture uses separate frozen aliases for proposal and critique
+ok 256 - architecture uses separate frozen aliases for proposal and critique
+  ---
+  duration_ms: 1.0343
+  type: 'test'
+  ...
+# Subtest: execution plans and explanations are deterministic and JSON serializable
+ok 257 - execution plans and explanations are deterministic and JSON serializable
+  ---
+  duration_ms: 3.412251
+  type: 'test'
+  ...
+# Subtest: protocol definitions are validated and deterministically topologically ordered
+ok 258 - protocol definitions are validated and deterministically topologically ordered
+  ---
+  duration_ms: 0.238349
+  type: 'test'
+  ...
+# Subtest: protocol validation rejects duplicate, missing, and cyclic dependencies with clear errors
+ok 259 - protocol validation rejects duplicate, missing, and cyclic dependencies with clear errors
+  ---
+  duration_ms: 0.398677
+  type: 'test'
+  ...
+# Subtest: protocol validation rejects unregistered executors and internal output contracts
+ok 260 - protocol validation rejects unregistered executors and internal output contracts
+  ---
+  duration_ms: 0.471052
+  type: 'test'
+  ...
+# Subtest: execution requirements derive hard workspace and session capabilities
+ok 261 - execution requirements derive hard workspace and session capabilities
+  ---
+  duration_ms: 1.534207
+  type: 'test'
+  ...
+# Subtest: write routing admits proven Grok tools but rejects unknown Kimi write capability
+ok 262 - write routing admits proven Grok tools but rejects unknown Kimi write capability
+  ---
+  duration_ms: 0.918382
+  type: 'test'
+  ...
+# Subtest: protocolId rejects non-string and unknown public values
+ok 263 - protocolId rejects non-string and unknown public values
+  ---
+  duration_ms: 0.269967
+  type: 'test'
+  ...
+# Subtest: design prefers Claude Fable at high effort
+ok 264 - design prefers Claude Fable at high effort
+  ---
+  duration_ms: 8.303382
+  type: 'test'
+  ...
+# Subtest: implementation prefers Codex Sol and accepts an exact effort override
+ok 265 - implementation prefers Codex Sol and accepts an exact effort override
+  ---
+  duration_ms: 0.902874
+  type: 'test'
+  ...
+# Subtest: Fable unavailability deterministically falls back to Opus
+ok 266 - Fable unavailability deterministically falls back to Opus
+  ---
+  duration_ms: 0.400041
+  type: 'test'
+  ...
+# Subtest: unknown availability blocks execution when a live snapshot is required
+ok 267 - unknown availability blocks execution when a live snapshot is required
+  ---
+  duration_ms: 0.421845
+  type: 'test'
+  ...
+# Subtest: hard capabilities beat provider preference and unknown is not treated as supported
+ok 268 - hard capabilities beat provider preference and unknown is not treated as supported
+  ---
+  duration_ms: 1.2031
+  type: 'test'
+  ...
+# Subtest: a probed capability override can make an explicit provider route eligible
+ok 269 - a probed capability override can make an explicit provider route eligible
+  ---
+  duration_ms: 0.248558
+  type: 'test'
+  ...
+# Subtest: unsupported exact effort is rejected instead of clamped
+ok 270 - unsupported exact effort is rejected instead of clamped
+  ---
+  duration_ms: 0.207302
+  type: 'test'
+  ...
+# Subtest: frozen alias candidates are independent from mutable policy inputs
+ok 271 - frozen alias candidates are independent from mutable policy inputs
+  ---
+  duration_ms: 0.476213
+  type: 'test'
+  ...
+# Subtest: per-alias frozen snapshots are honored
+ok 272 - per-alias frozen snapshots are honored
+  ---
+  duration_ms: 0.431101
+  type: 'test'
+  ...
+# Subtest: routing ties are deterministic by alias rank then candidate ID
+ok 273 - routing ties are deterministic by alias rank then candidate ID
+  ---
+  duration_ms: 0.500992
+  type: 'test'
+  ...
+# Subtest: invalid intent and alias produce stable contract errors
+ok 274 - invalid intent and alias produce stable contract errors
+  ---
+  duration_ms: 0.423648
+  type: 'test'
+  ...
+# Subtest: diagnostics separate admission, loaded build, missing services and mismatched roots without leaking host credentials
+ok 275 - diagnostics separate admission, loaded build, missing services and mismatched roots without leaking host credentials
+  ---
+  duration_ms: 497.200878
+  type: 'test'
+  ...
+# Subtest: fresh idle census evidence alone never labels a role ready
+ok 276 - fresh idle census evidence alone never labels a role ready
+  ---
+  duration_ms: 771.041555
+  type: 'test'
+  ...
+# Subtest: idle live roles require both prompt and nonce acknowledgement, and diagnostics stay read-only
+ok 277 - idle live roles require both prompt and nonce acknowledgement, and diagnostics stay read-only
+  ---
+  duration_ms: 1193.984442
+  type: 'test'
+  ...
+# Subtest: role diagnostics reject expired proof, successor bindings and changed composed prompts
+ok 278 - role diagnostics reject expired proof, successor bindings and changed composed prompts
+  ---
+  duration_ms: 2443.818436
+  type: 'test'
+  ...
+# Subtest: architecture runtime retains Fable to Opus fallback and proposal-session reuse
+ok 279 - architecture runtime retains Fable to Opus fallback and proposal-session reuse
+  ---
+  duration_ms: 8.868387
+  type: 'test'
+  ...
+# Subtest: fallback is limited to pre-turn model, effort, and session negotiation errors
+ok 280 - fallback is limited to pre-turn model, effort, and session negotiation errors
+  ---
+  duration_ms: 0.473927
+  type: 'test'
+  ...
+# Subtest: timeout classification is stable and separate from generic provider failure
+ok 281 - timeout classification is stable and separate from generic provider failure
+  ---
+  duration_ms: 0.203837
+  type: 'test'
+  ...
+# Subtest: deterministic gate requires approval for unparseable or severe unresolved critique
+ok 282 - deterministic gate requires approval for unparseable or severe unresolved critique
+  ---
+  duration_ms: 2.706164
+  type: 'test'
+  ...
+# Subtest: deterministic gate correlates stable finding IDs and escalates severe disagreement
+ok 283 - deterministic gate correlates stable finding IDs and escalates severe disagreement
+  ---
+  duration_ms: 0.569417
+  type: 'test'
+  ...
+# Subtest: deterministic gate fails closed on invalid fields and unknown dispositions
+ok 284 - deterministic gate fails closed on invalid fields and unknown dispositions
+  ---
+  duration_ms: 0.82623
+  type: 'test'
+  ...
+# Subtest: TM-443 control: the planted vectors DO fire under a plain git, so their absence below is meaningful
+ok 285 - TM-443 control: the planted vectors DO fire under a plain git, so their absence below is meaningful
+  ---
+  duration_ms: 119.187035
+  type: 'test'
+  ...
+# Subtest: TM-443 safe-git runs status, diff, log -p, show, merge-tree, fetch, stash, ff-merge and ls-remote without firing a planted vector
+ok 286 - TM-443 safe-git runs status, diff, log -p, show, merge-tree, fetch, stash, ff-merge and ls-remote without firing a planted vector
+  ---
+  duration_ms: 164.670635
+  type: 'test'
+  ...
+# Subtest: TM-443 a merge driver planted in repository config is a conflict under safe-git, never a program
+ok 287 - TM-443 a merge driver planted in repository config is a conflict under safe-git, never a program
+  ---
+  duration_ms: 100.971773
+  type: 'test'
+  ...
+# Subtest: TM-443 driverOverrides neutralises repository-scope drivers and re-adds only global credential helpers
+ok 288 - TM-443 driverOverrides neutralises repository-scope drivers and re-adds only global credential helpers
+  ---
+  duration_ms: 0.535697
+  type: 'test'
+  ...
+# Subtest: TM-443 review HIGH-1: a filter or merge driver whose name contains `=` never runs (exact repro)
+ok 289 - TM-443 review HIGH-1: a filter or merge driver whose name contains `=` never runs (exact repro)
+  ---
+  duration_ms: 85.33603
+  type: 'test'
+  ...
+# Subtest: TM-443 review MEDIUM: a worker-chosen remote helper (`evil::`) is never run, and URL rewriting refuses the call
+ok 290 - TM-443 review MEDIUM: a worker-chosen remote helper (`evil::`) is never run, and URL rewriting refuses the call
+  ---
+  duration_ms: 78.212415
+  type: 'test'
+  ...
+# Subtest: TM-443 review LOW: LFS never smudges, and a repository-scope LFS transfer agent refuses the call
+ok 291 - TM-443 review LOW: LFS never smudges, and a repository-scope LFS transfer agent refuses the call
+  ---
+  duration_ms: 58.636714
+  type: 'test'
+  ...
+# Subtest: TM-443 follow-up: a caller-supplied GIT_CONFIG_GLOBAL, GIT_DIR, GIT_SSH_COMMAND or GIT_EXEC_PATH never reaches host git
+ok 292 - TM-443 follow-up: a caller-supplied GIT_CONFIG_GLOBAL, GIT_DIR, GIT_SSH_COMMAND or GIT_EXEC_PATH never reaches host git
+  ---
+  duration_ms: 65.906279
+  type: 'test'
+  ...
+# Subtest: TM-443 follow-up: host gh is the root-owned binary at a pinned path; a gh planted first on PATH never runs
+ok 293 - TM-443 follow-up: host gh is the root-owned binary at a pinned path; a gh planted first on PATH never runs
+  ---
+  duration_ms: 217.566492
+  type: 'test'
+  ...
+# Subtest: TM-443 conformance: task-management carries a byte-identical copy of the helper
+ok 294 - TM-443 conformance: task-management carries a byte-identical copy of the helper
+  ---
+  duration_ms: 1.144316
+  type: 'test'
+  ...
+# Subtest: TM-443 grep: no raw git spawn outside safe-git in the governance paths
+ok 295 - TM-443 grep: no raw git spawn outside safe-git in the governance paths
+  ---
+  duration_ms: 57.148875
+  type: 'test'
+  ...
+# Subtest: TM-475 host git is the root-owned binary at a pinned path; a git planted first on PATH never runs
+ok 296 - TM-475 host git is the root-owned binary at a pinned path; a git planted first on PATH never runs
+  ---
+  duration_ms: 68.036352
+  type: 'test'
+  ...
+# Subtest: TM-475 core.sshCommand is the pinned ssh: an ssh planted first on PATH never runs for an ssh remote
+ok 297 - TM-475 core.sshCommand is the pinned ssh: an ssh planted first on PATH never runs for an ssh remote
+  ---
+  duration_ms: 65.976457
+  type: 'test'
+  ...
+# Subtest: TM-475 GIT_CONFIG_GLOBAL is the passwd entry home, not $HOME
+ok 298 - TM-475 GIT_CONFIG_GLOBAL is the passwd entry home, not $HOME
+  ---
+  duration_ms: 65.162286
+  type: 'test'
+  ...
+# Subtest: TM-475 core.attributesFile is pinned empty: $XDG_CONFIG_HOME/git/attributes is never read
+ok 299 - TM-475 core.attributesFile is pinned empty: $XDG_CONFIG_HOME/git/attributes is never read
+  ---
+  duration_ms: 66.698606
+  type: 'test'
+  ...
+# Subtest: TM-475 host gh refuses when its config sets http_unix_socket, before any request
+ok 300 - TM-475 host gh refuses when its config sets http_unix_socket, before any request
+  ---
+  duration_ms: 117.444676
+  type: 'test'
+  ...
+# Subtest: TM-475 safeGh and safeGhSync run gh with GH_HOST pinned to github.com and GH_REPO, GH_CONFIG_DIR, proxies and CA overrides removed
+ok 301 - TM-475 safeGh and safeGhSync run gh with GH_HOST pinned to github.com and GH_REPO, GH_CONFIG_DIR, proxies and CA overrides removed
+  ---
+  duration_ms: 61.234515
+  type: 'test'
+  ...
+# Subtest: TM-475 review H1: a hosts.yml naming only another host never moves host gh off github.com
+ok 302 - TM-475 review H1: a hosts.yml naming only another host never moves host gh off github.com
+  ---
+  duration_ms: 66.298916
+  type: 'test'
+  ...
+# Subtest: TM-475 review M2: repository-scope transfer-redirecting http keys, remote proxies and URL-named remotes refuse every host git call
+ok 303 - TM-475 review M2: repository-scope transfer-redirecting http keys, remote proxies and URL-named remotes refuse every host git call
+  ---
+  duration_ms: 160.93148
+  type: 'test'
+  ...
+# Subtest: TM-475 review M2: harmless repository-scope http keys (postBuffer, version) never block host git
+ok 304 - TM-475 review M2: harmless repository-scope http keys (postBuffer, version) never block host git
+  ---
+  duration_ms: 103.438404
+  type: 'test'
+  ...
+# Subtest: PR \#241 CI: the driver listing reads the repository named by -C / --git-dir, not the process cwd
+ok 305 - PR \#241 CI: the driver listing reads the repository named by -C / --git-dir, not the process cwd
+  ---
+  duration_ms: 98.521813
+  type: 'test'
+  ...
+# Subtest: 97fba771 review M1: a clone with no location still carries the global credential.helper
+ok 306 - 97fba771 review M1: a clone with no location still carries the global credential.helper
+  ---
+  duration_ms: 110.00192
+  type: 'test'
+  ...
+# Subtest: 97fba771 review L1/L2: an unrecognised leading option, and --bare, are refused
+ok 307 - 97fba771 review L1/L2: an unrecognised leading option, and --bare, are refused
+  ---
+  duration_ms: 75.303326
+  type: 'test'
+  ...
+# Subtest: provider executable discovery excludes plugin-local binaries and aliases
+ok 308 - provider executable discovery excludes plugin-local binaries and aliases
+  ---
+  duration_ms: 10.562162
+  type: 'test'
+  ...
+# Subtest: provider executable discovery resolves a trusted target when PATH contains only a shim
+ok 309 - provider executable discovery resolves a trusted target when PATH contains only a shim
+  ---
+  duration_ms: 2.043797
+  type: 'test'
+  ...
+# Subtest: run authority does not cross linked consumer worktrees
+ok 310 - run authority does not cross linked consumer worktrees
+  ---
+  duration_ms: 229.798215
+  type: 'test'
+  ...
+# Subtest: request semantics dynamically route design, implementation, research, and large context
+ok 311 - request semantics dynamically route design, implementation, research, and large context
+  ---
+  duration_ms: 181.848421
+  type: 'test'
+  ...
+# Subtest: architecture is a max-effort Claude and Sol adversarial protocol
+ok 312 - architecture is a max-effort Claude and Sol adversarial protocol
+  ---
+  duration_ms: 70.499289
+  type: 'test'
+  ...
+# Subtest: single-route preview refuses to hide architecture protocol stages
+ok 313 - single-route preview refuses to hide architecture protocol stages
+  ---
+  duration_ms: 68.651634
+  type: 'test'
+  ...
+# Subtest: review excludes the originating provider family when possible
+ok 314 - review excludes the originating provider family when possible
+  ---
+  duration_ms: 68.61505
+  type: 'test'
+  ...
+# Subtest: explicit Claude and Codex provider requests resolve through catalog aliases
+ok 315 - explicit Claude and Codex provider requests resolve through catalog aliases
+  ---
+  duration_ms: 113.0571
+  type: 'test'
+  ...
+# Subtest: an exact catalog endpoint can select Fable 5.1 for implementation
+ok 316 - an exact catalog endpoint can select Fable 5.1 for implementation
+  ---
+  duration_ms: 66.16211
+  type: 'test'
+  ...
+# Subtest: state roots must be absolute and outside the plugin installation
+ok 317 - state roots must be absolute and outside the plugin installation
+  ---
+  duration_ms: 1.957688
+  type: 'test'
+  ...
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-service-test-pfRAXl/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# Subtest: scheduler enforces concurrency and preserves idempotent spawn
+ok 318 - scheduler enforces concurrency and preserves idempotent spawn
+  ---
+  duration_ms: 232.952773
+  type: 'test'
+  ...
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-service-test-hZW32d/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# Subtest: architecture decisions can transition only from complete waiting evidence
+ok 319 - architecture decisions can transition only from complete waiting evidence
+  ---
+  duration_ms: 436.181917
+  type: 'test'
+  ...
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-service-test-GBSvVu/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# Subtest: waiting-for-decision returns immediately and can be cancelled without a live worker
+ok 320 - waiting-for-decision returns immediately and can be cancelled without a live worker
+  ---
+  duration_ms: 384.881203
+  type: 'test'
+  ...
+# Subtest: restart recovery relaunches queued work and quarantines a lost active worker
+ok 321 - restart recovery relaunches queued work and quarantines a lost active worker
+  ---
+  duration_ms: 233.51768
+  type: 'test'
+  ...
+# Subtest: worker startup acknowledgement fails closed and leaves a durable terminal failure
+ok 322 - worker startup acknowledgement fails closed and leaves a durable terminal failure
+  ---
+  duration_ms: 169.616441
+  type: 'test'
+  ...
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-service-test-tb0yBH/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-service-test-WWs8Z0/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# Subtest: an approval records which channel it came through, because the name on it proves nothing
+ok 323 - an approval records which channel it came through, because the name on it proves nothing
+  ---
+  duration_ms: 740.29907
+  type: 'test'
+  ...
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-service-test-APPJmq/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# Subtest: a server can require the channel an agent cannot reach
+ok 324 - a server can require the channel an agent cannot reach
+  ---
+  duration_ms: 423.748325
+  type: 'test'
+  ...
+# Subtest: systemd unit quotes a path with spaces, parentheses, $ and %
+ok 325 - systemd unit quotes a path with spaces, parentheses, $ and %
+  ---
+  duration_ms: 1.713392
+  type: 'test'
+  ...
+# Subtest: launchd plist keeps each argument as its own escaped string
+ok 326 - launchd plist keeps each argument as its own escaped string
+  ---
+  duration_ms: 1.08748
+  type: 'test'
+  ...
+# Subtest: scheduled task: logon trigger, restart on failure, no time limit, quoted arguments
+ok 327 - scheduled task: logon trigger, restart on failure, no time limit, quoted arguments
+  ---
+  duration_ms: 0.437428
+  type: 'test'
+  ...
+# Subtest: project: argv entrypoints survive the spaced path, and the node -e probe receives exact argv
+ok 328 - project: argv entrypoints survive the spaced path, and the node -e probe receives exact argv
+  ---
+  duration_ms: 39.047742
+  type: 'test'
+  ...
+# Subtest: platform guards: nats only when prepared, supervise only off native Windows
+ok 329 - platform guards: nats only when prepared, supervise only off native Windows
+  ---
+  duration_ms: 0.763966
+  type: 'test'
+  ...
+# Subtest: TM-289: supervise restarts on failure only; session-host and nats always restart
+ok 330 - TM-289: supervise restarts on failure only; session-host and nats always restart
+  ---
+  duration_ms: 0.262342
+  type: 'test'
+  ...
+# Subtest: ensure is idempotent: the second run writes nothing, reloads nothing, starts nothing
+ok 331 - ensure is idempotent: the second run writes nothing, reloads nothing, starts nothing
+  ---
+  duration_ms: 118.788774
+  type: 'test'
+  ...
+# Subtest: TM-283: equivalent copies never flap, an older session never downgrades, a newer one moves once
+ok 332 - TM-283: equivalent copies never flap, an older session never downgrades, a newer one moves once
+  ---
+  duration_ms: 135.337627
+  type: 'test'
+  ...
+# Subtest: TM-305: a linked task worktree never captures the services pointer, and a captured one moves back
+ok 333 - TM-305: a linked task worktree never captures the services pointer, and a captured one moves back
+  ---
+  duration_ms: 113.972075
+  type: 'test'
+  ...
+# Subtest: TM-305: linkedWorktree tells a linked worktree from a main checkout and a submodule
+ok 334 - TM-305: linkedWorktree tells a linked worktree from a main checkout and a submodule
+  ---
+  duration_ms: 1.721867
+  type: 'test'
+  ...
+# Subtest: TM-305: services ensure, restart and stop refuse inside a dispatched worker session
+ok 335 - TM-305: services ensure, restart and stop refuse inside a dispatched worker session
+  ---
+  duration_ms: 26.807136
+  type: 'test'
+  ...
+# Subtest: TM-283: compareVersions orders x.y.z numerically and sorts junk lowest
+ok 336 - TM-283: compareVersions orders x.y.z numerically and sorts junk lowest
+  ---
+  duration_ms: 0.424924
+  type: 'test'
+  ...
+# Subtest: ensure leaves nats out when AO_NATS_URL is set, and hot-reloads a changed project
+ok 337 - ensure leaves nats out when AO_NATS_URL is set, and hot-reloads a changed project
+  ---
+  duration_ms: 14.660571
+  type: 'test'
+  ...
+# Subtest: launchd and Task Scheduler registration run exactly these commands
+ok 338 - launchd and Task Scheduler registration run exactly these commands
+  ---
+  duration_ms: 174.896614
+  type: 'test'
+  ...
+# Subtest: a download whose SHA-256 does not match the lock is refused and nothing is installed
+ok 339 - a download whose SHA-256 does not match the lock is refused and nothing is installed
+  ---
+  duration_ms: 13.247731
+  type: 'test'
+  ...
+# Subtest: a second hand-run session-host exits 0 and leaves lease.json untouched
+ok 340 - a second hand-run session-host exits 0 and leaves lease.json untouched
+  ---
+  duration_ms: 239.870282
+  type: 'test'
+  ...
+# Subtest: integration: the real process-compose restarts a killed child within 5s
+ok 341 - integration: the real process-compose restarts a killed child within 5s
+  ---
+  duration_ms: 2987.745058
+  type: 'test'
+  ...
+# killed 1242548, new pid 1243569 after 2058ms, restarts=1
+# Subtest: TM-289 integration: the real process-compose leaves a retired supervisor down and retries a lock loser
+ok 342 - TM-289 integration: the real process-compose leaves a retired supervisor down and retries a lock loser
+  ---
+  duration_ms: 3802.843113
+  type: 'test'
+  ...
+# retire: Completed restarts=0; later: Restarting restarts=2
+# Subtest: TM-286: services restart <name> restarts exactly that process under a new pid; stop stops only it; unknown names are refused
+ok 343 - TM-286: services restart <name> restarts exactly that process under a new pid; stop stops only it; unknown names are refused
+  ---
+  duration_ms: 5.451508
+  type: 'test'
+  ...
+# Subtest: TM-286: services status --json lists name, pid, state, restarts and readiness for every managed process
+ok 344 - TM-286: services status --json lists name, pid, state, restarts and readiness for every managed process
+  ---
+  duration_ms: 3.401802
+  type: 'test'
+  ...
+# Subtest: TM-374: services wait blocks until the condition holds (exit 0), times out with exit 2, and refuses bad arguments with exit 1
+ok 345 - TM-374: services wait blocks until the condition holds (exit 0), times out with exit 2, and refuses bad arguments with exit 1
+  ---
+  duration_ms: 1034.345861
+  type: 'test'
+  ...
+# Subtest: session host refuses non-loopback binds
+ok 346 - session host refuses non-loopback binds
+  ---
+  duration_ms: 1.161709
+  type: 'test'
+  ...
+# Subtest: session meta refuses a run id with no run record
+ok 347 - session meta refuses a run id with no run record
+  ---
+  duration_ms: 4.445729
+  type: 'test'
+  ...
+# Subtest: session host binds 127.0.0.1, walks a busy port, and exchanges a one-time capability
+ok 348 - session host binds 127.0.0.1, walks a busy port, and exchanges a one-time capability
+  ---
+  duration_ms: 50.386802
+  type: 'test'
+  ...
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-session-spawn-3IfL3z/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# Subtest: spawn returns a session URL that is not stored on the snapshot
+ok 349 - spawn returns a session URL that is not stored on the snapshot
+  ---
+  duration_ms: 138.782791
+  type: 'test'
+  ...
+# Subtest: SSE after=N returns only later events and Last-Event-ID is equivalent
+ok 350 - SSE after=N returns only later events and Last-Event-ID is equivalent
+  ---
+  duration_ms: 40.150152
+  type: 'test'
+  ...
+# Subtest: SSE returns 409 when the journal hash chain is corrupt
+ok 351 - SSE returns 409 when the journal hash chain is corrupt
+  ---
+  duration_ms: 25.101029
+  type: 'test'
+  ...
+# Subtest: SSE watch delivers seq+1 after a later journal append
+ok 352 - SSE watch delivers seq+1 after a later journal append
+  ---
+  duration_ms: 23.687647
+  type: 'test'
+  ...
+# Subtest: POST controls require loopback Origin, journal follow-up, and cancel the run
+ok 353 - POST controls require loopback Origin, journal follow-up, and cancel the run
+  ---
+  duration_ms: 66.061977
+  type: 'test'
+  ...
+# Subtest: POST decision reviews a waiting architecture run
+ok 354 - POST decision reviews a waiting architecture run
+  ---
+  duration_ms: 29.80666
+  type: 'test'
+  ...
+# Subtest: session supervisor unit names are stable, hashed, and refuse unsafe ids
+ok 355 - session supervisor unit names are stable, hashed, and refuse unsafe ids
+  ---
+  duration_ms: 2.483194
+  type: 'test'
+  ...
+# Subtest: session supervisor launch argv is systemd-run, prlimit, and cli session-host
+ok 356 - session supervisor launch argv is systemd-run, prlimit, and cli session-host
+  ---
+  duration_ms: 1.395543
+  type: 'test'
+  ...
+# Subtest: supervision is off on Windows, inside the session-host process, and when env is 0
+ok 357 - supervision is off on Windows, inside the session-host process, and when env is 0
+  ---
+  duration_ms: 8.118198
+  type: 'test'
+  ...
+# Subtest: ensureSessionHost joins a live lease and dispose leaves that listener running
+ok 358 - ensureSessionHost joins a live lease and dispose leaves that listener running
+  ---
+  duration_ms: 51.78019
+  type: 'test'
+  ...
+# [agent-orchestration] managed services unavailable (ENOENT: ENOENT: no such file or directory, open '/tmp/ao-session-fallback-CSKuJb/plugin/services/process-compose.lock.json'); falling back to a session host started by this process.
+# Subtest: ensureSessionHost listens in-process when dist/cli.cjs is missing
+ok 359 - ensureSessionHost listens in-process when dist/cli.cjs is missing
+  ---
+  duration_ms: 20.316103
+  type: 'test'
+  ...
+# Subtest: waitForSessionHostLease returns the first successful probe
+ok 360 - waitForSessionHostLease returns the first successful probe
+  ---
+  duration_ms: 1.755946
+  type: 'test'
+  ...
+# Subtest: TM-284: hostCopies finds the codex, grok and kimi copies and nothing else
+ok 361 - TM-284: hostCopies finds the codex, grok and kimi copies and nothing else
+  ---
+  duration_ms: 19.369153
+  type: 'test'
+  ...
+# Subtest: TM-485: a directory that is not this plugin is never a host copy, so never replaced or deleted
+ok 362 - TM-485: a directory that is not this plugin is never a host copy, so never replaced or deleted
+  ---
+  duration_ms: 50.420628
+  type: 'test'
+  ...
+# Subtest: TM-284: an older copy is refreshed to the pointer's build; an equal or newer one is left alone
+ok 363 - TM-284: an older copy is refreshed to the pointer's build; an equal or newer one is left alone
+  ---
+  duration_ms: 44.439451
+  type: 'test'
+  ...
+# Subtest: TM-299: a same-version copy of a NEWER build is never downgraded; an unfingerprinted one is left alone
+ok 364 - TM-299: a same-version copy of a NEWER build is never downgraded; an unfingerprinted one is left alone
+  ---
+  duration_ms: 39.932915
+  type: 'test'
+  ...
+# Subtest: TM-299: same-version builds are ordered by the ordinal recorded at sync; mtime only for a copy without one
+ok 365 - TM-299: same-version builds are ordered by the ordinal recorded at sync; mtime only for a copy without one
+  ---
+  duration_ms: 35.335152
+  type: 'test'
+  ...
+# Subtest: TM-299: outside git the source's ordinal is the newest mtime under dist/
+ok 366 - TM-299: outside git the source's ordinal is the newest mtime under dist/
+  ---
+  duration_ms: 1.908402
+  type: 'test'
+  ...
+# Subtest: TM-284: a copy whose node_modules does not satisfy the new package.json is reported and left whole
+ok 367 - TM-284: a copy whose node_modules does not satisfy the new package.json is reported and left whole
+  ---
+  duration_ms: 14.5439
+  type: 'test'
+  ...
+# Subtest: TM-284: a copy that fails half-way is rolled back, never left half-updated
+ok 368 - TM-284: a copy that fails half-way is rolled back, never left half-updated
+  ---
+  duration_ms: 7.745076
+  type: 'test'
+  ...
+# Subtest: TM-284: never copies from a source tree with uncommitted changes, and never writes into a git checkout
+ok 369 - TM-284: never copies from a source tree with uncommitted changes, and never writes into a git checkout
+  ---
+  duration_ms: 84.957421
+  type: 'test'
+  ...
+# Subtest: TM-284: install-host refreshes older copies from its plugin root (dry run reports only)
+ok 370 - TM-284: install-host refreshes older copies from its plugin root (dry run reports only)
+  ---
+  duration_ms: 41.816306
+  type: 'test'
+  ...
+# Subtest: TM-284: satisfies covers the range forms package.json uses
+ok 371 - TM-284: satisfies covers the range forms package.json uses
+  ---
+  duration_ms: 0.34158
+  type: 'test'
+  ...
+# Subtest: TM-285: stale MCP servers are listed by host and pid with restart advice, and nothing is signalled
+ok 372 - TM-285: stale MCP servers are listed by host and pid with restart advice, and nothing is signalled
+  ---
+  duration_ms: 7.19144
+  type: 'test'
+  ...
+# Subtest: TM-285: leaked scopes whose state root is gone are stopped; one whose root exists is never touched
+ok 373 - TM-285: leaked scopes whose state root is gone are stopped; one whose root exists is never touched
+  ---
+  duration_ms: 2.830805
+  type: 'test'
+  ...
+# Subtest: TM-285: a hand-run session host on the managed state root is handed over; anything else is left alone
+ok 374 - TM-285: a hand-run session host on the managed state root is handed over; anything else is left alone
+  ---
+  duration_ms: 0.575509
+  type: 'test'
+  ...
+# Subtest: TM-285: doctor flags a TMUX_TMPDIR whose socket path exceeds the unix-socket limit
+ok 375 - TM-285: doctor flags a TMUX_TMPDIR whose socket path exceeds the unix-socket limit
+  ---
+  duration_ms: 2.15562
+  type: 'test'
+  ...
+# Subtest: TM-284/285: one ensure's self-heal reports every part, and a failing part never fails the rest
+ok 376 - TM-284/285: one ensure's self-heal reports every part, and a failing part never fails the rest
+  ---
+  duration_ms: 1.125272
+  type: 'test'
+  ...
+# Subtest: source fingerprint survives local verification caches but changes with source
+ok 377 - source fingerprint survives local verification caches but changes with source
+  ---
+  duration_ms: 13.367922
+  type: 'test'
+  ...
+# Subtest: TM-351: delivered standing mail rings an idle recipient once, with no inbox call
+ok 378 - TM-351: delivered standing mail rings an idle recipient once, with no inbox call
+  ---
+  duration_ms: 660.036431
+  type: 'test'
+  ...
+# Subtest: TM-351: a held ring never types into a full composer and is retried next tick
+ok 379 - TM-351: a held ring never types into a full composer and is retried next tick
+  ---
+  duration_ms: 1622.53029
+  type: 'test'
+  ...
+# Subtest: TM-351: mail with no live pane is held, and mail already read is never rung
+ok 380 - TM-351: mail with no live pane is held, and mail already read is never rung
+  ---
+  duration_ms: 181.780176
+  type: 'test'
+  ...
+# Subtest: TM-352: wait returns the reply, times out naming the message, and refuses an unknown id
+ok 381 - TM-352: wait returns the reply, times out naming the message, and refuses an unknown id
+  ---
+  duration_ms: 160.550223
+  type: 'test'
+  ...
+# Subtest: TM-351: the supervisor tick rings delivered standing mail (wiring, no tmux server)
+ok 382 - TM-351: the supervisor tick rings delivered standing mail (wiring, no tmux server)
+  ---
+  duration_ms: 258.385323
+  type: 'test'
+  ...
+# Subtest: TM-352: ao-topology mailbox wait exits 2 naming the message on timeout, 1 on an unknown id, 0 with the reply
+ok 383 - TM-352: ao-topology mailbox wait exits 2 naming the message on timeout, 1 on an unknown id, 0 with the reply
+  ---
+  duration_ms: 536.306969
+  type: 'test'
+  ...
+# Subtest: TM-351: the ring pointer never carries control characters from the sender
+ok 384 - TM-351: the ring pointer never carries control characters from the sender
+  ---
+  duration_ms: 0.428798
+  type: 'test'
+  ...
+# Subtest: TM-419: a replayed backlog of old handled mail rings nothing; one new unread message rings once across a restart
+ok 385 - TM-419: a replayed backlog of old handled mail rings nothing; one new unread message rings once across a restart
+  ---
+  duration_ms: 891.761055
+  type: 'test'
+  ...
+# Subtest: TM-419: mail delivered after the seed is still not rung once handled or deferred, or when the inbox cannot show it
+ok 386 - TM-419: mail delivered after the seed is still not rung once handled or deferred, or when the inbox cannot show it
+  ---
+  duration_ms: 265.075849
+  type: 'test'
+  ...
+# Subtest: TM-419: the inbox and the ring share one membership predicate
+ok 387 - TM-419: the inbox and the ring share one membership predicate
+  ---
+  duration_ms: 0.348185
+  type: 'test'
+  ...
+# Subtest: idempotency keys return one durable run
+ok 388 - idempotency keys return one durable run
+  ---
+  duration_ms: 156.708181
+  type: 'test'
+  ...
+# Subtest: run IDs cannot traverse outside the state root
+ok 389 - run IDs cannot traverse outside the state root
+  ---
+  duration_ms: 1.507637
+  type: 'test'
+  ...
+# Subtest: a torn final event is ignored but prior hashes remain verified
+ok 390 - a torn final event is ignored but prior hashes remain verified
+  ---
+  duration_ms: 6.198609
+  type: 'test'
+  ...
+# Subtest: events are sequenced and terminal states are immutable
+ok 391 - events are sequenced and terminal states are immutable
+  ---
+  duration_ms: 21.625717
+  type: 'test'
+  ...
+# Subtest: operator_message events append to the verified hash chain
+ok 392 - operator_message events append to the verified hash chain
+  ---
+  duration_ms: 8.675563
+  type: 'test'
+  ...
+# Subtest: cancel requests are idempotent
+ok 393 - cancel requests are idempotent
+  ---
+  duration_ms: 9.630108
+  type: 'test'
+  ...
+# Subtest: the durable journal repairs a stale snapshot after an interrupted commit
+ok 394 - the durable journal repairs a stale snapshot after an interrupted commit
+  ---
+  duration_ms: 9.380114
+  type: 'test'
+  ...
+# Subtest: generic updates cannot mutate lifecycle or identity fields
+ok 395 - generic updates cannot mutate lifecycle or identity fields
+  ---
+  duration_ms: 5.769598
+  type: 'test'
+  ...
+# Subtest: generic updates reject terminal evidence changes while clearWorkspace is narrow and idempotent
+ok 396 - generic updates reject terminal evidence changes while clearWorkspace is narrow and idempotent
+  ---
+  duration_ms: 21.406371
+  type: 'test'
+  ...
+# Subtest: list skips a run directory that has lost its durable record
+ok 397 - list skips a run directory that has lost its durable record
+  ---
+  duration_ms: 4.973666
+  type: 'test'
+  ...
+# Subtest: list fails closed when a valid run directory contains a corrupt journal, beside a skipped orphan
+ok 398 - list fails closed when a valid run directory contains a corrupt journal, beside a skipped orphan
+  ---
+  duration_ms: 4.86121
+  type: 'test'
+  ...
+# Subtest: an empty or malformed stale primary lock is reclaimed under the breaker
+ok 399 - an empty or malformed stale primary lock is reclaimed under the breaker
+  ---
+  duration_ms: 4.297723
+  type: 'test'
+  ...
+# Subtest: an abandoned breaker can be reclaimed before breaking a stale lock
+ok 400 - an abandoned breaker can be reclaimed before breaking a stale lock
+  ---
+  duration_ms: 261.541554
+  type: 'test'
+  ...
+# Subtest: markedProcesses names a live process carrying the marker, and only that one
+ok 401 - markedProcesses names a live process carrying the marker, and only that one
+  ---
+  duration_ms: 188.20422
+  type: 'test'
+  ...
+# Subtest: escapedSessions reports only new operator sessions started under the temp directory
+ok 402 - escapedSessions reports only new operator sessions started under the temp directory
+  ---
+  duration_ms: 0.252792
+  type: 'test'
+  ...
+# Subtest: the suite runs with TMUX blank and a bare tmux resolving away from the operator's socket
+not ok 403 - the suite runs with TMUX blank and a bare tmux resolving away from the operator's socket
+  ---
+  duration_ms: 1.646066
+  type: 'test'
+  location: '/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/tests/unit/tmux-isolation.test.mjs:20:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    the preflight did not run: TMUX is inherited
+    
+    undefined !== ''
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ''
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/tests/unit/tmux-isolation.test.mjs:22:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: the helper refuses the operator's default socket, however it is spelled
+ok 404 - the helper refuses the operator's default socket, however it is spelled
+  ---
+  duration_ms: 0.855942
+  type: 'test'
+  ...
+# Subtest: the helper refuses the server the suite was started from, recorded or still in TMUX
+ok 405 - the helper refuses the server the suite was started from, recorded or still in TMUX
+  ---
+  duration_ms: 0.797521
+  type: 'test'
+  ...
+# Subtest: killOwnedServer refuses before running tmux at all
+ok 406 - killOwnedServer refuses before running tmux at all
+  ---
+  duration_ms: 8.040808
+  type: 'test'
+  ...
+# Subtest: the preflight blanks TMUX, records the operator's socket, and replaces an unset or /tmp TMUX_TMPDIR
+ok 407 - the preflight blanks TMUX, records the operator's socket, and replaces an unset or /tmp TMUX_TMPDIR
+  ---
+  duration_ms: 635.729375
+  type: 'test'
+  ...
+# Subtest: an isolated server is reachable three ways and the teardown removes it
+ok 408 - an isolated server is reachable three ways and the teardown removes it
+  ---
+  duration_ms: 33.665645
+  type: 'test'
+  ...
+# Subtest: listServerPanes refuses an unnamed server and scopes every listing it does make
+ok 409 - listServerPanes refuses an unnamed server and scopes every listing it does make
+  ---
+  duration_ms: 32.975824
+  type: 'test'
+  ...
+# Subtest: ordinary verbs never enumerate an unnamed tmux server
+ok 410 - ordinary verbs never enumerate an unnamed tmux server
+  ---
+  duration_ms: 2289.485484
+  type: 'test'
+  ...
+# [{"verb":"census --json","code":0,"listings":[]},{"verb":"prompt refresh","code":0,"listings":[]},{"verb":"prompt ack","code":1,"listings":[]},{"verb":"prompt ack","code":1,"listings":["-S /fake/caller.sock -u list-panes -a -F \#{socket_path}\\t\#{pid}\\t\#{session_id}\\t\#{session_created}\\t\#{pane_id}\\t\#{pane_pid}\\t\#{session_name}\\t\#{pane_current_command}\\t\#{pane_current_path}\\t\#{pane_dead}\\t\#{@ao-id}\\t\#{@ao-agent}\\t\#{@ao-role}\\t\#{@ao-repo}\\t\#{@ao-repo-origin}\\t\#{@ao-node}\\t\#{@ao-team}\\t\#{@ao-run}\\t\#{@ao-workflow}\\t\#{@ao-kind}\\t\#{@ao-predecessor}\\t\#{pane_title}"]},{"verb":"startup-check --source","code":0,"listings":[]},{"verb":"startup-check --source","code":0,"listings":["-S /fake/caller.sock -u list-panes -a -F \#{socket_path}\\t\#{pid}\\t\#{session_id}\\t\#{session_created}\\t\#{pane_id}\\t\#{pane_pid}\\t\#{session_name}\\t\#{pane_current_command}\\t\#{pane_current_path}\\t\#{pane_dead}\\t\#{@ao-id}\\t\#{@ao-agent}\\t\#{@ao-role}\\t\#{@ao-repo}\\t\#{@ao-repo-origin}\\t\#{@ao-node}\\t\#{@ao-team}\\t\#{@ao-run}\\t\#{@ao-workflow}\\t\#{@ao-kind}\\t\#{@ao-predecessor}\\t\#{pane_title}"]},{"verb":"role status","code":0,"listings":["-u list-panes -s -t =ao-d4b8aa7e -F \#{socket_path}\\t\#{pid}\\t\#{session_id}\\t\#{session_created}\\t\#{pane_id}\\t\#{pane_pid}\\t\#{session_name}\\t\#{pane_current_command}\\t\#{pane_current_path}\\t\#{pane_dead}\\t\#{@ao-id}\\t\#{@ao-agent}\\t\#{@ao-role}\\t\#{@ao-repo}\\t\#{@ao-repo-origin}\\t\#{@ao-node}\\t\#{@ao-team}\\t\#{@ao-run}\\t\#{@ao-workflow}\\t\#{@ao-kind}\\t\#{@ao-predecessor}\\t\#{pane_title}"]},{"verb":"supervise --once","code":1,"listings":[]},{"verb":"role status (recorded server)","listings":["-S /fake/role.sock -u list-panes -s -t =ao-d4b8aa7e -F \#{socket_path}\\t\#{pid}\\t\#{session_id}\\t\#{session_created}\\t\#{pane_id}\\t\#{pane_pid}\\t\#{session_name}\\t\#{pane_current_command}\\t\#{pane_current_path}\\t\#{pane_dead}\\t\#{@ao-id}\\t\#{@ao-agent}\\t\#{@ao-role}\\t\#{@ao-repo}\\t\#{@ao-repo-origin}\\t\#{@ao-node}\\t\#{@ao-team}\\t\#{@ao-run}\\t\#{@ao-workflow}\\t\#{@ao-kind}\\t\#{@ao-predecessor}\\t\#{pane_title}"]}]
+# Subtest: supervise in an unenrolled repository runs read-only: it publishes presence and never starts a lead or agent
+ok 411 - supervise in an unenrolled repository runs read-only: it publishes presence and never starts a lead or agent
+  ---
+  duration_ms: 1274.764858
+  type: 'test'
+  ...
+# Subtest: supervise --once still reconciles an enrolled repository
+not ok 412 - supervise --once still reconciles an enrolled repository
+  ---
+  duration_ms: 1186.344793
+  type: 'test'
+  location: '/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/tests/unit/topology-activation.test.mjs:165:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/nats-local.mjs:176
+      const error = new Error(message);
+                    ^
+    
+    Error: No working nats-server found. Set AO_NATS_SERVER, put one on PATH (the snap shim does not count), or set AO_TRANSPORT=file.
+        at unavailable (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/nats-local.mjs:176:17)
+        at file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/nats-local.mjs:290:21
+        at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+        at async withLock (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/lockfile.mjs:140:16)
+        at async useLocal (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/orch-transport.mjs:686:19)
+        at async openNatsTransport (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/orch-transport.mjs:702:7)
+        at async resolveTransport (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/orch-transport.mjs:124:18)
+        at async file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/presence.mjs:392:44
+        at async withLock (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/lockfile.mjs:140:16)
+        at async reconcile (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/supervision.mjs:249:31) {
+      code: 'TOPOLOGY_NATS_UNAVAILABLE'
+    }
+    
+    Node.js v22.23.1
+    
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    unavailable (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/nats-local.mjs:176:17)
+    file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/nats-local.mjs:290:21
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async withLock (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/lockfile.mjs:140:16)
+    async useLocal (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/orch-transport.mjs:686:19)
+    async openNatsTransport (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/orch-transport.mjs:702:7)
+    async resolveTransport (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/orch-transport.mjs:124:18)
+    async file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/presence.mjs:392:44
+    async withLock (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/lockfile.mjs:140:16)
+    async reconcile (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/topology/lib/supervision.mjs:249:31) {
+    TestContext.<anonymous> (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/tests/unit/topology-activation.test.mjs:169:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: a per-repository watcher labels only its own repository's panes
+ok 413 - a per-repository watcher labels only its own repository's panes
+  ---
+  duration_ms: 90.728884
+  type: 'test'
+  ...
+# Subtest: every non-@ address is byte-identical to expandFanout, and an unknown @ token is refused
+ok 414 - every non-@ address is byte-identical to expandFanout, and an unknown @ token is refused
+  ---
+  duration_ms: 103.927034
+  type: 'test'
+  ...
+# Subtest: @run is the roster minus the sender minus the orchestrator
+ok 415 - @run is the roster minus the sender minus the orchestrator
+  ---
+  duration_ms: 39.996729
+  type: 'test'
+  ...
+# Subtest: @role: spans both scopes and tags each expansion with its envelope path
+ok 416 - @role: spans both scopes and tags each expansion with its envelope path
+  ---
+  duration_ms: 42.038455
+  type: 'test'
+  ...
+# Subtest: @idle reads the census, and refuses rather than degrading when it cannot
+ok 417 - @idle reads the census, and refuses rather than degrading when it cannot
+  ---
+  duration_ms: 42.317443
+  type: 'test'
+  ...
+# Subtest: THE TRAP: a standing lead outside run.agents is delivered, not TOPOLOGY_UNKNOWN_AGENT
+ok 418 - THE TRAP: a standing lead outside run.agents is delivered, not TOPOLOGY_UNKNOWN_AGENT
+  ---
+  duration_ms: 233.902779
+  type: 'test'
+  ...
+# Subtest: TM-168: a role icon is display only — a lead icon on a worker's row does not make it a lead
+ok 419 - TM-168: a role icon is display only — a lead icon on a worker's row does not make it a lead
+  ---
+  duration_ms: 39.597835
+  type: 'test'
+  ...
+# Subtest: an @ token from outside the repository is refused, while a plain id still reaches the lead
+ok 420 - an @ token from outside the repository is refused, while a plain id still reaches the lead
+  ---
+  duration_ms: 205.85783
+  type: 'test'
+  ...
+# Subtest: the bound refuses naming the count and the limit, never truncates, and --max-recipients raises it
+ok 421 - the bound refuses naming the count and the limit, never truncates, and --max-recipients raises it
+  ---
+  duration_ms: 389.435943
+  type: 'test'
+  ...
+# Subtest: wait --message barriers over exactly the delivered set and names the silent one
+ok 422 - wait --message barriers over exactly the delivered set and names the silent one
+  ---
+  duration_ms: 243.287847
+  type: 'test'
+  ...
+# Subtest: a redirected recipient still satisfies the barrier through the existing redirect map
+ok 423 - a redirected recipient still satisfies the barrier through the existing redirect map
+  ---
+  duration_ms: 142.934298
+  type: 'test'
+  ...
+# Subtest: forwarding a broadcast-delivered message into a child workflow cannot re-broadcast it
+ok 424 - forwarding a broadcast-delivered message into a child workflow cannot re-broadcast it
+  ---
+  duration_ms: 147.64339
+  type: 'test'
+  ...
+# Subtest: a refused broadcast leaves run.json byte-identical, and an outsider cannot grow it
+ok 425 - a refused broadcast leaves run.json byte-identical, and an outsider cannot grow it
+  ---
+  duration_ms: 442.607648
+  type: 'test'
+  ...
+# Subtest: moving expansion above the allocation does not disturb idempotency
+ok 426 - moving expansion above the allocation does not disturb idempotency
+  ---
+  duration_ms: 138.134226
+  type: 'test'
+  ...
+# Subtest: agent restart --mode handoff replaces the live session on the promoted prompt and passes the handoff; resume without provider support falls back and says so; agent list flags restart_required
+ok 427 - agent restart --mode handoff replaces the live session on the promoted prompt and passes the handoff; resume without provider support falls back and says so; agent list flags restart_required
+  ---
+  duration_ms: 32925.576219
+  type: 'test'
+  ...
+# Subtest: agent restart --mode resume relaunches resuming the same provider session id, with no handoff
+ok 428 - agent restart --mode resume relaunches resuming the same provider session id, with no handoff
+  ---
+  duration_ms: 3599.612768
+  type: 'test'
+  ...
+# Subtest: agent restart never interrupts typed input, and refuses a session the agent does not own
+ok 429 - agent restart never interrupts typed input, and refuses a session the agent does not own
+  ---
+  duration_ms: 3444.033556
+  type: 'test'
+  ...
+# Subtest: agent restart --mode resume --pass-handoff on a resuming provider returns a result with no handoff to pass
+ok 430 - agent restart --mode resume --pass-handoff on a resuming provider returns a result with no handoff to pass
+  ---
+  duration_ms: 13461.759806
+  type: 'test'
+  ...
+# Subtest: busy is the braille RANGE, not a table of glyphs
+ok 431 - busy is the braille RANGE, not a table of glyphs
+  ---
+  duration_ms: 1.781264
+  type: 'test'
+  ...
+# Subtest: the claude timer marker stays off the two real IDLE screens it was tuned against
+ok 432 - the claude timer marker stays off the two real IDLE screens it was tuned against
+  ---
+  duration_ms: 0.458828
+  type: 'test'
+  ...
+# Subtest: needs-input is edge-triggered exactly once across busy -> idle -> idle -> idle
+ok 433 - needs-input is edge-triggered exactly once across busy -> idle -> idle -> idle
+  ---
+  duration_ms: 1.634131
+  type: 'test'
+  ...
+# Subtest: a pane that has never been observed working never produces needs-input
+ok 434 - a pane that has never been observed working never produces needs-input
+  ---
+  duration_ms: 0.387246
+  type: 'test'
+  ...
+# Subtest: quota-blocked beats attention beats working, through the real providers/kimi.json
+ok 435 - quota-blocked beats attention beats working, through the real providers/kimi.json
+  ---
+  duration_ms: 12.140619
+  type: 'test'
+  ...
+# Subtest: the kimi quota pattern survives withoutPaths AND tmuxFailureTrigger
+ok 436 - the kimi quota pattern survives withoutPaths AND tmuxFailureTrigger
+  ---
+  duration_ms: 3.330638
+  type: 'test'
+  ...
+# Subtest: a dead pane is dead even while its last capture still holds a spinner
+ok 437 - a dead pane is dead even while its last capture still holds a spinner
+  ---
+  duration_ms: 0.266701
+  type: 'test'
+  ...
+# Subtest: a failed capture is unknown, never idle; so is a listing we could not take
+ok 438 - a failed capture is unknown, never idle; so is a listing we could not take
+  ---
+  duration_ms: 0.152891
+  type: 'test'
+  ...
+# Subtest: the census records the cadence it was told, and owns none of its own
+ok 439 - the census records the cadence it was told, and owns none of its own
+  ---
+  duration_ms: 11.05649
+  type: 'test'
+  ...
+# Subtest: activity means the world moved, so it cannot pin the supervisor's sleep ladder
+ok 440 - activity means the world moved, so it cannot pin the supervisor's sleep ladder
+  ---
+  duration_ms: 11.674357
+  type: 'test'
+  ...
+# Subtest: stale forces every dispatchable false and every state unknown
+ok 441 - stale forces every dispatchable false and every state unknown
+  ---
+  duration_ms: 0.375718
+  type: 'test'
+  ...
+# Subtest: adapterForPane resolves a kimi pane from its running command, not from a record
+ok 442 - adapterForPane resolves a kimi pane from its running command, not from a record
+  ---
+  duration_ms: 2.146435
+  type: 'test'
+  ...
+# Subtest: a census reuses one listing, captures only inconclusive panes, and honours its budget
+ok 443 - a census reuses one listing, captures only inconclusive panes, and honours its budget
+  ---
+  duration_ms: 10.812165
+  type: 'test'
+  ...
+# Subtest: (a) a dangling gitdir is repaired from the remote, local edits kept byte-identical
+ok 444 - (a) a dangling gitdir is repaired from the remote, local edits kept byte-identical
+  ---
+  duration_ms: 378.839313
+  type: 'test'
+  ...
+# Subtest: (b) a conflicting pop keeps the stash, and no file content is lost
+ok 445 - (b) a conflicting pop keeps the stash, and no file content is lost
+  ---
+  duration_ms: 344.775989
+  type: 'test'
+  ...
+# Subtest: (c) no remote known: refused with an alert, nothing changed
+ok 446 - (c) no remote known: refused with an alert, nothing changed
+  ---
+  duration_ms: 126.033261
+  type: 'test'
+  ...
+# Subtest: (d) no close revision: refused, nothing changed
+ok 447 - (d) no close revision: refused, nothing changed
+  ---
+  duration_ms: 214.788062
+  type: 'test'
+  ...
+# Subtest: (e) a healthy repository is a no-op
+ok 448 - (e) a healthy repository is a no-op
+  ---
+  duration_ms: 141.80249
+  type: 'test'
+  ...
+# Subtest: services ensure path: a registered repository with no .git is repaired; an unregistered one is not a checkout
+ok 449 - services ensure path: a registered repository with no .git is repaired; an unregistered one is not a checkout
+  ---
+  duration_ms: 277.222928
+  type: 'test'
+  ...
+# Subtest: a pointer whose owning repository still exists is refused, not re-cloned
+ok 450 - a pointer whose owning repository still exists is refused, not re-cloned
+  ---
+  duration_ms: 94.865875
+  type: 'test'
+  ...
+# Subtest: a directory naming an unrelated repository is refused, not adopted into it (review repro)
+ok 451 - a directory naming an unrelated repository is refused, not adopted into it (review repro)
+  ---
+  duration_ms: 202.286739
+  type: 'test'
+  ...
+# Subtest: a gitdir that cannot be stat'ed (EACCES) is unreadable and refused, never treated as gone
+ok 452 - a gitdir that cannot be stat'ed (EACCES) is unreadable and refused, never treated as gone
+  ---
+  duration_ms: 94.354701
+  type: 'test'
+  ...
+# Subtest: a repair killed between stash and apply leaves an in-progress record that is reported, never re-run
+ok 453 - a repair killed between stash and apply leaves an in-progress record that is reported, never re-run
+  ---
+  duration_ms: 365.438967
+  type: 'test'
+  ...
+# Subtest: a remote shaped like a git option is refused
+ok 454 - a remote shaped like a git option is refused
+  ---
+  duration_ms: 89.411931
+  type: 'test'
+  ...
+# Subtest: an ignored file the advance would overwrite keeps the tree at the matched revision
+ok 455 - an ignored file the advance would overwrite keeps the tree at the matched revision
+  ---
+  duration_ms: 334.858229
+  type: 'test'
+  ...
+# Subtest: supervise: a mid-run repair ends the supervisor so it restarts under the repaired identity
+ok 456 - supervise: a mid-run repair ends the supervisor so it restarts under the repaired identity
+  ---
+  duration_ms: 545.762894
+  type: 'test'
+  ...
+# Subtest: lead ensure refuses with TOPOLOGY_CHECKOUT_BROKEN for a checkout it cannot repair
+ok 457 - lead ensure refuses with TOPOLOGY_CHECKOUT_BROKEN for a checkout it cannot repair
+  ---
+  duration_ms: 215.171202
+  type: 'test'
+  ...
+# Subtest: CLI workflow preview loads resolver definition and rejects another repository
+ok 458 - CLI workflow preview loads resolver definition and rejects another repository
+  ---
+  duration_ms: 271.010252
+  type: 'test'
+  ...
+# Subtest: internal collaboration: a project's own agents reach each other directly
+ok 459 - internal collaboration: a project's own agents reach each other directly
+  ---
+  duration_ms: 1311.469493
+  type: 'test'
+  ...
+# Subtest: external collaboration: an outsider reaches the lead, not the member
+not ok 460 - external collaboration: an outsider reaches the lead, not the member
+  ---
+  duration_ms: 193.964102
+  type: 'test'
+  location: '/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/tests/unit/topology-collaboration.test.mjs:116:1'
+  failureType: 'testCodeFailure'
+  error: 'a redirect must be journalled — it is not an error but it must be visible'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/tests/unit/topology-collaboration.test.mjs:136:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: an unresolvable recipient fails closed: an outsider naming a stranger still reaches the lead
+not ok 461 - an unresolvable recipient fails closed: an outsider naming a stranger still reaches the lead
+  ---
+  duration_ms: 220.833702
+  type: 'test'
+  location: '/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/tests/unit/topology-collaboration.test.mjs:145:1'
+  failureType: 'testCodeFailure'
+  error: 'The "path" argument must be of type string or an instance of Buffer or URL. Received undefined'
+  code: 'ERR_INVALID_ARG_TYPE'
+  name: 'TypeError'
+  stack: |-
+    open (node:internal/fs/promises:636:10)
+    readFile (node:internal/fs/promises:1252:20)
+    TestContext.<anonymous> (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/tests/unit/topology-collaboration.test.mjs:167:28)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: a project reached by another path shape is the same project, not an outsider
+ok 462 - a project reached by another path shape is the same project, not an outsider
+  ---
+  duration_ms: 289.131279
+  type: 'test'
+  ...
+# Subtest: a barrier on the original addressee is satisfied by the lead's answer, and returns it
+ok 463 - a barrier on the original addressee is satisfied by the lead's answer, and returns it
+  ---
+  duration_ms: 3303.614567
+  type: 'test'
+  ...
+# Subtest: a delegation opens the direct channel, scoped to task and to the named outsider
+ok 464 - a delegation opens the direct channel, scoped to task and to the named outsider
+  ---
+  duration_ms: 376.383569
+  type: 'test'
+  ...
+# Subtest: the receiving repo's task store gets the last word on a delegation token
+ok 465 - the receiving repo's task store gets the last word on a delegation token
+  ---
+  duration_ms: 272.330509
+  type: 'test'
+  ...
+# Subtest: the via chain is appended to per hop and enforced on the send path
+not ok 466 - the via chain is appended to per hop and enforced on the send path
+  ---
+  duration_ms: 277.47419
+  type: 'test'
+  location: '/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/tests/unit/topology-collaboration.test.mjs:345:1'
+  failureType: 'testCodeFailure'
+  error: 'The "path" argument must be of type string or an instance of Buffer or URL. Received undefined'
+  code: 'ERR_INVALID_ARG_TYPE'
+  name: 'TypeError'
+  stack: |-
+    open (node:internal/fs/promises:636:10)
+    Module.readFile (node:internal/fs/promises:1252:20)
+    file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/tests/unit/topology-collaboration.test.mjs:379:68
+    async TestContext.<anonymous> (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/tests/unit/topology-collaboration.test.mjs:379:19)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: coordinates_only is a capability: the mailbox refuses to assign a coordinator work
+ok 467 - coordinates_only is a capability: the mailbox refuses to assign a coordinator work
+  ---
+  duration_ms: 465.856508
+  type: 'test'
+  ...
+# Subtest: the lead's inbox depth is a number, and it is journalled as it grows
+not ok 468 - the lead's inbox depth is a number, and it is journalled as it grows
+  ---
+  duration_ms: 3454.526795
+  type: 'test'
+  location: '/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/tests/unit/topology-collaboration.test.mjs:425:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    each redirect records the depth it created
+    + actual - expected
+    
+    + []
+    - [
+    -   1,
+    -   2,
+    -   3
+    - ]
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    0: 1
+    1: 2
+    2: 3
+  actual:
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-427-security-agent-orchestration-reviewer-any-proces/agent-orchestration/tests/unit/topology-collaboration.test.mjs:455:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: a run that records only the token's digest still authenticates the writer
+ok 469 - a run that records only the token's digest still authenticates the writer
+  ---
+  duration_ms: 1185.609567
+  type: 'test'
+  ...
+# Subtest: an agent cannot answer for another agent, and an empty reply satisfies nothing
+ok 470 - an agent cannot answer for another agent, and an empty reply satisfies nothing
+  ---
+  duration_ms: 2164.255202
+  type: 'test'
+  ...
+ao-unit exit 1

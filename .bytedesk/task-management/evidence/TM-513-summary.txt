@@ -1,0 +1,8 @@
+0	agent-orchestration: npm ci	npm --prefix agent-orchestration ci --no-audit --no-fund
+0	agent-orchestration: unit	sh -c cd agent-orchestration && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u AO_CONSUMER -u TM_DISPATCH_WORKER -u TM_DISPATCH_TASK -u TM_ACTOR npm run -s test:unit
+0	agent-orchestration: build:check	npm --prefix agent-orchestration run -s build:check
+1	task-management: unit	sh -c cd task-management && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u AO_CONSUMER -u TM_DISPATCH_WORKER -u TM_DISPATCH_TASK -u TM_ACTOR -u TM_NTFY_TOPIC -u TM_NTFY_TOKEN node --test tests/unit/*.test.mjs
+0	agent-orchestration: plugin validate	claude plugin validate ./agent-orchestration
+0	task-management: plugin validate	claude plugin validate ./task-management
+0	plugin-rsync: tests	sh -c env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u AO_CONSUMER -u TM_DISPATCH_WORKER -u TM_DISPATCH_TASK -u TM_ACTOR bash plugin-rsync/tests/test-plugin-rsync.sh
+1677/1677 pass with TM_SESSION_ID unset: /tmp/tm513-checks/task-management__unit.rerun.log

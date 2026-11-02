@@ -1,0 +1,140 @@
+{
+  "task": "TM-218",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-09-24T21:35:14.661Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-218-agent-orchestration-lead-can-close-the-worker-se",
+      "branch": "tm/TM-218-agent-orchestration-lead-can-close-the-worker-se",
+      "intent": "Give the lead one supported path to start a worker for an admitted task that records ownership (session, pane, pid, start time, workflow run), and one to stop it only when owned, idle and collected, so manage integrate/cleanup can prove worker ownership and leads never launch workers ad hoc.",
+      "boundaries": [
+        "agent-orchestration management/cli/roles, tests, dist, docs/repository-leads.md, CHANGELOG",
+        "no change to reviewer.mjs (TM-233 in flight)",
+        "no push/PR/merge by worker"
+      ],
+      "dependencies": [],
+      "checks": [
+        "cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs",
+        "cd agent-orchestration && npm run -s build:check",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/dist",
+        "agent-orchestration/docs/repository-leads.md",
+        "agent-orchestration/tests/unit",
+        "agent-orchestration/topology/cli.mjs",
+        "agent-orchestration/topology/lib/management.mjs",
+        "agent-orchestration/topology/lib/roles.mjs"
+      ]
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-24T21:44:53.015Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "report": {
+        "revision": "061104ad09cf2308f57a84996d4051b497cec47f",
+        "artifacts": [
+          "commit 061104a: manage start-worker, manage bind (adopt running pane/pid), manage stop-worker; cleanup uses the same closer"
+        ],
+        "checks": [
+          "lead rerun: agent-orchestration unit 730 tests, 726 pass, 0 fail, 4 skipped",
+          "build:check ok",
+          "claude plugin validate ./agent-orchestration: pass"
+        ],
+        "evidence": "Worker report via lead mailbox; lead verified files within declared touches (roles.mjs untouched), clean tree, no AI trailers.",
+        "risks": [
+          "A harness running as the pane process itself is never idle while alive; stop-worker refuses until it exits (conservative)",
+          "In-process subagents cannot be adopted (share the lead pid/cwd); docs direct leads to use start-worker",
+          "Adopted bindings live only in the management record (tm has no external-worker registration CLI)",
+          "No --prompt-file/--cli: tm dispatch uses its own handoff and dispatch.tmuxCommand"
+        ]
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-24T21:53:40.593Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "report": {
+        "revision": "0253bde67719552537b63c9e129a7b2c56e31a37",
+        "artifacts": [
+          "commits 061104a and 0253bde (review round-1 fixes)"
+        ],
+        "checks": [
+          "lead rerun at 0253bde: agent-orchestration unit 728 pass / 0 fail / 4 skip",
+          "build:check ok",
+          "claude plugin validate: pass"
+        ],
+        "evidence": "Round-1 verdict briefs/TM-218.review-latest.raw.txt; major fixed (stopped worker marked stopped, restart moves it to previous_workers, start->stop->start test); minor fixed (adoption refuses sessions older than admit and login shells; docs say adoption authorizes closing); note documented (Linux-only idle); nit fixed (refusal event only for owner).",
+        "risks": [
+          "A harness running as the pane process itself is never idle while alive; stop-worker refuses until it exits (conservative)",
+          "In-process subagents cannot be adopted (share the lead pid/cwd); docs direct leads to use start-worker",
+          "Adopted bindings live only in the management record (tm has no external-worker registration CLI)",
+          "No --prompt-file/--cli: tm dispatch uses its own handoff and dispatch.tmuxCommand",
+          "Real tm dispatch still refuses re-dispatch while a dispatch record and live claim exist; docs direct tm collect first (tm change out of scope)"
+        ]
+      },
+      "state": "ready-for-review"
+    }
+  ],
+  "updated_at": "2026-09-24T21:53:40.593Z",
+  "base_revision": "5229cdaf055e679d7e8aa27652408c6bb85f6411",
+  "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+  "workflow_run_id": "tm-TM-218",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-218-agent-orchestration-lead-can-close-the-worker-se",
+  "branch": "tm/TM-218-agent-orchestration-lead-can-close-the-worker-se",
+  "started": true,
+  "state": "ready-for-review",
+  "finish": {
+    "revision": "0253bde67719552537b63c9e129a7b2c56e31a37",
+    "artifacts": [
+      "commits 061104a and 0253bde (review round-1 fixes)"
+    ],
+    "checks": [
+      "lead rerun at 0253bde: agent-orchestration unit 728 pass / 0 fail / 4 skip",
+      "build:check ok",
+      "claude plugin validate: pass"
+    ],
+    "evidence": "Round-1 verdict briefs/TM-218.review-latest.raw.txt; major fixed (stopped worker marked stopped, restart moves it to previous_workers, start->stop->start test); minor fixed (adoption refuses sessions older than admit and login shells; docs say adoption authorizes closing); note documented (Linux-only idle); nit fixed (refusal event only for owner).",
+    "risks": [
+      "A harness running as the pane process itself is never idle while alive; stop-worker refuses until it exits (conservative)",
+      "In-process subagents cannot be adopted (share the lead pid/cwd); docs direct leads to use start-worker",
+      "Adopted bindings live only in the management record (tm has no external-worker registration CLI)",
+      "No --prompt-file/--cli: tm dispatch uses its own handoff and dispatch.tmuxCommand",
+      "Real tm dispatch still refuses re-dispatch while a dispatch record and live claim exist; docs direct tm collect first (tm change out of scope)"
+    ]
+  },
+  "collected": false,
+  "review_request": {
+    "base_revision": "5229cdaf055e679d7e8aa27652408c6bb85f6411",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-218-0253bde67719552537b63c9e129a7b2c56e31a37.patch",
+    "patch_sha256": "e93acea77f928d9a1219f992d72ad4061fda37f880a2132ea74f8af523af92dc",
+    "nonce": "dd1b311a-ce13-4042-b436-77a988151610",
+    "task": "TM-218",
+    "revision": "0253bde67719552537b63c9e129a7b2c56e31a37",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 25595,
+      "sessionId": "$288",
+      "sessionCreated": 1790282302,
+      "paneId": "%502",
+      "panePid": 2543160
+    },
+    "author_agent_ids": [
+      "1b07de2e-6b73-47c6-ad14-aa29eeea67fd"
+    ],
+    "created_at": "2026-09-24T21:53:40.959Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-09-24T21:53:41.503Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-218-0253bde67719552537b63c9e129a7b2c56e31a37.json"
+  }
+}

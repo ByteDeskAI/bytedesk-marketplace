@@ -1,0 +1,25 @@
+commit ea9760f71d42649328d6c9f76dde979251718cc1 (clean tree for plugin-rsync/ scripts/)
+ok   clone starts behind origin
+ok   fast-forwards a behind main
+ok   sets core.hooksPath when unset
+ok   post-merge ran
+ok   first setup trusts Codex hooks
+ok   throttled within 10 minutes
+ok   another branch is left alone
+ok   a worktree on main is left alone
+ok   a diverged main is left alone
+ok   setup-only sets core.hooksPath and does not pull
+ok   pulls past a dirty file it does not touch
+ok   the clean touched plugin is synced
+ok   the dirty plugin never reaches the cache
+ok   the skip is logged
+ok   stamp written after a successful pull
+ok   a pull over a dirty file leaves the tip
+ok   a pull over a dirty file leaves the file
+ok   the failed pull is logged
+ok   no stamp after a failed pull, so the next session retries
+19 passed, 0 failed
+exit=0
+33 passed, 0 failed
+shellcheck:
+exit=0

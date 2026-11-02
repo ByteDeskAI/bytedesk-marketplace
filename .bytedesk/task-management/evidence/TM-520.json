@@ -1,0 +1,338 @@
+{
+  "task": "TM-520",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-10-09T05:22:58.853Z",
+      "owner": "fd2b831f",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-520-ao-mcp-t7-doctor-and-role-status-verify-each-liv",
+      "branch": "tm/TM-520-ao-mcp-t7-doctor-and-role-status-verify-each-liv",
+      "base_revision": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+      "base_source": "server-tip",
+      "intent": "TM-520 (EP-029 T7): doctor and role status compare each live role's MCP child processes (ps --ppid) with the servers its role expects, flag a reviewer missing review_submit (pre-TM-365 argv) with a forced-relaunch recommendation, and report 'expected none' explicitly. Design: .bytedesk/task-management/evidence/EP-autonomy/audit-mcp.md section 5 T7.",
+      "boundaries": [
+        "agent-orchestration topology/lib/doctor.mjs and the role status path in roles.mjs only, tests, CHANGELOG, dist",
+        "no edits to reviewer, slots, delegation, standing-mailbox, lead, delivery, launch, respawn or persona-registry modules (in-flight TM-427, TM-478, TM-484)",
+        "tests use fixture process lists, never real ps of live agents",
+        "no version bumps"
+      ],
+      "dependencies": [],
+      "checks": [
+        "cd agent-orchestration && npm ci",
+        "env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u AO_CONSUMER -u AO_TRANSPORT -u TM_DISPATCH_WORKER -u TM_DISPATCH_TASK -u TM_ACTOR npm run -s test:unit",
+        "npm run -s build && npm run -s build:check",
+        "npm run -s roadmap:check",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/dist/cli.cjs",
+        "agent-orchestration/dist/mcp.cjs",
+        "agent-orchestration/tests/unit/topology-doctor.test.mjs",
+        "agent-orchestration/topology/lib/doctor.mjs",
+        "agent-orchestration/topology/lib/roles.mjs"
+      ]
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-09T05:52:01.705Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e",
+        "artifacts": [
+          "agent-orchestration/topology/lib/doctor.mjs",
+          "agent-orchestration/topology/lib/roles.mjs",
+          "agent-orchestration/topology/cli.mjs",
+          "agent-orchestration/tests/unit/topology-role-mcp.test.mjs",
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/251"
+        ],
+        "checks": [
+          {
+            "name": "agent-orchestration: npm ci",
+            "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+            "exit_code": 0,
+            "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e"
+          },
+          {
+            "name": "agent-orchestration: unit",
+            "command": "sh -c \"cd agent-orchestration && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID npm run -s test:unit\"",
+            "exit_code": 1,
+            "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e"
+          },
+          {
+            "name": "agent-orchestration: build:check",
+            "command": "npm --prefix agent-orchestration run -s build:check",
+            "exit_code": 0,
+            "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e"
+          },
+          {
+            "name": "task-management: unit",
+            "command": "sh -c \"cd task-management && ... node --test tests/unit/*.test.mjs\"",
+            "exit_code": 1,
+            "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e"
+          },
+          {
+            "name": "agent-orchestration: plugin validate",
+            "command": "claude plugin validate ./agent-orchestration",
+            "exit_code": 0,
+            "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e"
+          },
+          {
+            "name": "task-management: plugin validate",
+            "command": "claude plugin validate ./task-management",
+            "exit_code": 0,
+            "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e"
+          }
+        ],
+        "risks": [
+          "ao-unit (9) and tm-unit (15) fail identically at base c9cd187e in clean worktrees; pre-existing, not caused by this change"
+        ],
+        "evidence": "/tmp/tm520-checks/evidence.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-10-09T07:19:31.951Z",
+      "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e",
+      "landed": "1f2cf1c47bda7f668ff1f17312251cbb6b6951d6",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR #251 merged: faro APPROVE at ea75d2bf, synced (hunks verified), CI green",
+        "policy_auto_merge": true,
+        "at": "2026-10-09T07:19:31.526Z"
+      }
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-09T07:19:32.874Z",
+      "worker": {
+        "name": "agent:TM-520-fd2b831f",
+        "run": "tmux:tm-TM-520",
+        "backend": "tmux",
+        "owner": "fd2b831f",
+        "registered_at": "2026-10-09T05:23:02.685Z",
+        "observed_at": "2026-10-09T05:52:01.695Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-520",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 60758,
+          "sessionId": "$150",
+          "sessionCreated": 1791523382,
+          "paneId": "%214",
+          "panePid": 1340005
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "cleanup",
+      "at": "2026-10-09T07:19:35.388Z",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-520-ao-mcp-t7-doctor-and-role-status-verify-each-liv",
+      "branch": "tm/TM-520-ao-mcp-t7-doctor-and-role-status-verify-each-liv",
+      "status": "complete"
+    }
+  ],
+  "updated_at": "2026-10-09T07:19:35.388Z",
+  "integration_branch": null,
+  "base_revision": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+  "base_source": "server-tip",
+  "owner": "fd2b831f",
+  "workflow_run_id": "tm-TM-520",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-520-ao-mcp-t7-doctor-and-role-status-verify-each-liv",
+  "branch": "tm/TM-520-ao-mcp-t7-doctor-and-role-status-verify-each-liv",
+  "started": true,
+  "state": "cleaned",
+  "worker": {
+    "name": "agent:TM-520-fd2b831f",
+    "run": "tmux:tm-TM-520",
+    "backend": "tmux",
+    "owner": "fd2b831f",
+    "registered_at": "2026-10-09T05:23:02.685Z",
+    "observed_at": "2026-10-09T05:52:01.695Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-520",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$150",
+      "sessionCreated": 1791523382,
+      "paneId": "%214",
+      "panePid": 1340005
+    },
+    "stopped_at": "2026-10-09T07:19:32.874Z"
+  },
+  "finish": {
+    "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e",
+    "artifacts": [
+      "agent-orchestration/topology/lib/doctor.mjs",
+      "agent-orchestration/topology/lib/roles.mjs",
+      "agent-orchestration/topology/cli.mjs",
+      "agent-orchestration/tests/unit/topology-role-mcp.test.mjs",
+      "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/251"
+    ],
+    "checks": [
+      {
+        "name": "agent-orchestration: npm ci",
+        "command": "npm --prefix agent-orchestration ci --no-audit --no-fund",
+        "exit_code": 0,
+        "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e"
+      },
+      {
+        "name": "agent-orchestration: unit",
+        "command": "sh -c \"cd agent-orchestration && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID npm run -s test:unit\"",
+        "exit_code": 1,
+        "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e"
+      },
+      {
+        "name": "agent-orchestration: build:check",
+        "command": "npm --prefix agent-orchestration run -s build:check",
+        "exit_code": 0,
+        "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e"
+      },
+      {
+        "name": "task-management: unit",
+        "command": "sh -c \"cd task-management && ... node --test tests/unit/*.test.mjs\"",
+        "exit_code": 1,
+        "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e"
+      },
+      {
+        "name": "agent-orchestration: plugin validate",
+        "command": "claude plugin validate ./agent-orchestration",
+        "exit_code": 0,
+        "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e"
+      },
+      {
+        "name": "task-management: plugin validate",
+        "command": "claude plugin validate ./task-management",
+        "exit_code": 0,
+        "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e"
+      }
+    ],
+    "risks": [
+      "ao-unit (9) and tm-unit (15) fail identically at base c9cd187e in clean worktrees; pre-existing, not caused by this change"
+    ],
+    "evidence": "/tmp/tm520-checks/evidence.md"
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+    "admitted_base": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+    "effective_base": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+    "range_note": "The range c9cd187ec93aef43a8e513769d3cccbade7d48a5..revision starts at the task admission commit.",
+    "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-520-ao-mcp-t7-doctor-and-role-status-verify-each-liv",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-520-ea75d2bf0e5a4396a861687e4a4fc278aef43c8e.patch",
+    "patch_sha256": "3fe24d0de9ce5187759d54aa04f0972b5a69a384598cb1008975d80bec08c272",
+    "packet_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-520-ea75d2bf0e5a4396a861687e4a4fc278aef43c8e.packet",
+    "packet_sha256": "1b17d25e3c2946fee405c048b3c22edc7ecae736712a02fe9a932636d6252b61",
+    "checks_unsatisfied": [
+      "agent-orchestration: unit: exited 1 at ea75d2bf0e5a4396a861687e4a4fc278aef43c8e",
+      "task-management: unit: exited 1 at ea75d2bf0e5a4396a861687e4a4fc278aef43c8e",
+      "plugin-rsync: tests: no evidence"
+    ],
+    "nonce": "7d9cfe86-4410-4232-9ba6-844c22c3369c",
+    "task": "TM-520",
+    "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "created_at": "2026-10-09T05:52:05.178Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-10-09T05:52:05.743Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-520-ea75d2bf0e5a4396a861687e4a4fc278aef43c8e.json"
+  },
+  "review": {
+    "base_revision": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+    "admitted_base": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+    "effective_base": "c9cd187ec93aef43a8e513769d3cccbade7d48a5",
+    "patch_sha256": "3fe24d0de9ce5187759d54aa04f0972b5a69a384598cb1008975d80bec08c272",
+    "task": "TM-520",
+    "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "agent-orchestration/topology/lib/doctor.mjs",
+        "line": 253,
+        "claim": "readProcess is Linux-only (/proc/<pid>/cmdline and GNU `ps --ppid`). On macOS a live stale reviewer is reported `live: false, ok: true, note: \"not running; nothing to verify\"`, a false 'not running' rather than 'cannot verify on this platform'.",
+        "evidence": "`readFile(`/proc/${pid}/cmdline`)`, then `if (!cmdline) return null`. roleMcpFor maps null to 'not running; nothing to verify'.",
+        "fix": "In a follow-up, distinguish 'process gone' (`process.kill(pid, 0)` ESRCH) from 'cannot inspect', and report the latter as `ok: null`, or use portable `ps` invocations."
+      },
+      {
+        "severity": "minor",
+        "file": "agent-orchestration/topology/lib/doctor.mjs",
+        "line": 218,
+        "claim": "A server counts as running when any child's command line contains the spec's last argument as a substring, so a generic name (for example `index.js`) can match an unrelated child.",
+        "evidence": "`const serverRunsIn = (spec, child) => child.includes(spec.args?.length ? spec.args.at(-1) : spec.command);`",
+        "fix": "In a follow-up, match the full command and argument sequence, or the script's absolute path."
+      },
+      {
+        "severity": "note",
+        "file": "agent-orchestration/topology/lib/doctor.mjs",
+        "line": 220,
+        "claim": "I reviewed revision ea75d2bf (patch sha256 3fe24d0d…), the same patch as request 7d9cfe86, which was blocked only for check evidence. All seven required checks are now satisfied with host-run results, including the agent-orchestration unit suite that holds topology-role-mcp.test.mjs, so the new doctor.mjs/roles.mjs/reviewer.mjs imports load without a cycle. Criterion 1: a reviewer on the pre-TM-365 argv is reported ROLE_MCP_MISSING ao-review, with the reason and a forced-relaunch command, and the healthy lead passes. Criterion 2: a strict-MCP role with no declared servers reports `expected: \"none\"`, and the test fails on an empty report. All files are within the touches."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 60758,
+      "sessionId": "$123",
+      "sessionCreated": 1791502572,
+      "paneId": "%171",
+      "panePid": 1391600
+    },
+    "request_nonce": "1077641e-b803-4bc7-b918-e17609a528e7",
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e",
+    "created_at": "2026-10-09T06:26:25.020Z"
+  },
+  "merge": {
+    "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e",
+    "landed": "1f2cf1c47bda7f668ff1f17312251cbb6b6951d6",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "ea75d2bf0e5a4396a861687e4a4fc278aef43c8e",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR #251 merged: faro APPROVE at ea75d2bf, synced (hunks verified), CI green",
+      "policy_auto_merge": true,
+      "at": "2026-10-09T07:19:31.526Z"
+    }
+  }
+}
