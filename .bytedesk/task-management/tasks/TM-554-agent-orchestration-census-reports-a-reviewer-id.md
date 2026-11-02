@@ -8,7 +8,7 @@ title: "agent-orchestration: census reports a reviewer idle while an interactive
 epic: "EP-029"
 acceptance: [{"text":"census reports needs-input for a pane showing a CLI selection dialog (fixture test)","done":false},{"text":"reviewer status reports unavailable with the dialog reason while the composer is held","done":false}]
 evidence: []
-commits: []
+commits: ["e05183d8"]
 blockedBy: []
 blocks: []
 actor: "main"
@@ -17,7 +17,7 @@ branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
 labels: ["ready-for-agent"]
 triagedBy: "auto"
-updated: "2026-11-02T01:10:29.874Z"
+updated: "2026-11-02T01:11:33.221Z"
 priority: "high"
 comments: [{"author":"main","ts":"2026-11-02T01:10:29.866Z","text":"Lead triage (fd2b831f): complements TM-548 (launch-time suppression, wake failure names the dialog, doctor flag). This task owns census/reviewer-status detection. Same live instance here: reviewer c164bf8b pane %171 since ~21:20Z 2026-11-01, blocking reviews of TM-292, TM-523, TM-528."}]
 ---
