@@ -374,3 +374,23 @@ test("renaming a tmux display session does not create a new pending identity", a
   await startupCheck({consumer:root,session:"renamed",source:"watcher",incarnation,env});
   assert.equal((await pendingEnrollments({env})).length,1);
 });
+
+// TM-556: a daemon watcher re-checked every live pane on every 5s tick, so `labelled` and the
+// startup journal grew by one entry per unregistered pane per tick for the supervisor's lifetime
+// (~25 MiB/h of heap and GBs of journal per active repository). Each incarnation is checked once.
+test('a daemon watcher checks each pane incarnation once, not once per tick', async t => {
+  const root = await scratch(); t.after(() => rm(root, { recursive: true, force: true }));
+  const env = envFor(root), controller = new AbortController();
+  const TICKS = 50; let calls = 0;
+  const result = await watchServer({ env, signal: controller.signal, intervalMs: 1, listPanesFn: async () => {
+    calls++;
+    if (calls === TICKS) controller.abort();
+    // The pane respawns half way: a new incarnation (panePid) is a new pane and is checked afresh.
+    return [observed(root, 'server-a', 'work', calls > TICKS / 2 ? { panePid: 3 } : {})];
+  } });
+  assert.ok(calls >= TICKS, `the watcher must actually tick (${calls} listings)`);
+  assert.deepEqual(result.labelled, ['work', 'work'], 'one label per incarnation, however many ticks');
+  const journalDir = join(stateRoot(env), 'startup');
+  const lines = (await Promise.all((await readdir(journalDir)).map(n => readFile(join(journalDir, n), 'utf8')))).join('').trim().split('\n');
+  assert.equal(lines.length, 2, 'one journal line per incarnation, however many ticks');
+});

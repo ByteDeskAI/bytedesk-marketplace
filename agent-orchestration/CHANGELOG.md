@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [0.18.1] — 2026-11-10
+
+### Fixed
+
+- **Every active repository's supervisor leaked ~25 MiB/h of heap (TM-556).** The startup watcher
+  that runs inside `ao-topology supervise` re-checked every unregistered provider pane on every 5s
+  tick, pushed its session name onto a `labelled` array that a daemon never returns, and appended a
+  line to `startup/<repo>.jsonl` each time. Each pushed name was a V8 sliced string that pinned that
+  tick's whole `tmux list-panes` output, so supervisors reached 2.6 GB after four days (one held
+  138,536 copies of two names) and the startup journals reached 7.5 GB on disk. The watcher now
+  checks each pane incarnation once and forgets it when the pane leaves the listing; a respawn is
+  still checked afresh. Regression test: `a daemon watcher checks each pane incarnation once`.
+
 ## [0.18.0] — 2026-11-01
 
 ### Added

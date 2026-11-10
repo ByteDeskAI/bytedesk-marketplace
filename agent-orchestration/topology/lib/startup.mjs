@@ -308,23 +308,35 @@ export async function watchServer({ env = process.env, home, once = false, inter
   });
   if (!taken) return { acquired: false, server: tmuxServer, labelled: [] };
   const labelled = [];
+  // TM-556: each pane incarnation is checked ONCE per watcher lifetime. Re-checking every tick
+  // pushed the same session names into `labelled` every 5s for as long as the supervisor lived
+  // (each a V8 sliced string pinning that tick's whole tmux listing — ~25 MiB/h of heap per
+  // active repository) and appended a journal line per tick (GBs of startup/*.jsonl). Pruned to the
+  // panes listed this tick, so the set is bounded by live panes, and a respawn (new incarnation) is
+  // checked afresh.
+  let checked = new Set();
   try {
   do {
     if (signal?.aborted) break;
     const panes = await list({ tmuxServer, env });
-    const candidates = [];
+    const candidates = [], live = new Set();
     for (const observed of panes) {
       if (!observed) continue;
       if (observed.serverKey !== server.serverKey || observed.serverPid !== server.serverPid) return { acquired: true, fenced: true, server: tmuxServer, labelled };
       if (!observed || observed.alive === false || !["kimi", "codex", "claude", "grok"].includes(basename(observed.command ?? "")) || !observed.cwd) continue;
       if (!SIX.every(k => observed[k] !== undefined && observed[k] !== null)) continue;
+      const key = JSON.stringify(SIX.map(k => observed[k]));
+      live.add(key);
+      if (checked.has(key)) continue;
       if (!(await inRepo(observed.cwd))) continue;
-      candidates.push(observed);
+      candidates.push({ observed, key });
     }
+    checked = new Set([...checked].filter(key => live.has(key)));
     const owned = await withLock(`${leasePath}.lock`, async () => {
       if ((await readLease())?.owner !== taken.owner) return false;
-      for (const observed of candidates) {
+      for (const { observed, key } of candidates) {
         const result = await startupCheck({ consumer: observed.cwd, session: observed.sessionName ?? observed.session ?? observed.name, pane: observed.paneId, incarnation: Object.fromEntries(SIX.map(k => [k, observed[k]])), source: "watcher", env, home });
+        checked.add(key);
         if (result.labelled) labelled.push(observed.sessionName ?? observed.session ?? observed.name);
       }
       taken.heartbeat_at = nowIso(); await atomicJson(leasePath, taken); return true;
