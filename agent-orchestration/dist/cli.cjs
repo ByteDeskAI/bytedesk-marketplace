@@ -27549,23 +27549,29 @@ async function watchServer({ env = process.env, home, once = false, intervalMs =
   });
   if (!taken) return { acquired: false, server: tmuxServer, labelled: [] };
   const labelled = [];
+  let checked = /* @__PURE__ */ new Set();
   try {
     do {
       if (signal?.aborted) break;
       const panes = await list2({ tmuxServer, env });
-      const candidates = [];
+      const candidates = [], live2 = /* @__PURE__ */ new Set();
       for (const observed of panes) {
         if (!observed) continue;
         if (observed.serverKey !== server.serverKey || observed.serverPid !== server.serverPid) return { acquired: true, fenced: true, server: tmuxServer, labelled };
         if (!observed || observed.alive === false || !["kimi", "codex", "claude", "grok"].includes((0, import_node_path51.basename)(observed.command ?? "")) || !observed.cwd) continue;
         if (!SIX.every((k) => observed[k] !== void 0 && observed[k] !== null)) continue;
+        const key = JSON.stringify(SIX.map((k) => observed[k]));
+        live2.add(key);
+        if (checked.has(key)) continue;
         if (!await inRepo(observed.cwd)) continue;
-        candidates.push(observed);
+        candidates.push({ observed, key });
       }
+      checked = new Set([...checked].filter((key) => live2.has(key)));
       const owned = await withLock(`${leasePath2}.lock`, async () => {
         if ((await readLease())?.owner !== taken.owner) return false;
-        for (const observed of candidates) {
+        for (const { observed, key } of candidates) {
           const result = await startupCheck({ consumer: observed.cwd, session: observed.sessionName ?? observed.session ?? observed.name, pane: observed.paneId, incarnation: Object.fromEntries(SIX.map((k) => [k, observed[k]])), source: "watcher", env, home });
+          checked.add(key);
           if (result.labelled) labelled.push(observed.sessionName ?? observed.session ?? observed.name);
         }
         taken.heartbeat_at = nowIso();
@@ -64729,11 +64735,11 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "bab729024ae0d572959a3cc80e6f8ad1cbc5690920be27dbabcb4f3580b15948";
+  return false ? null : "0c747a23a3eca48255317421a7fe659cf4e714c6c3eaac02cd36b57d27072a40";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "bab729024ae0d572959a3cc80e6f8ad1cbc5690920be27dbabcb4f3580b15948";
-  let version2 = false ? null : "0.18.0";
+  const fingerprint2 = false ? null : "0c747a23a3eca48255317421a7fe659cf4e714c6c3eaac02cd36b57d27072a40";
+  let version2 = false ? null : "0.18.1";
   if (!version2) {
     try {
       version2 = JSON.parse((0, import_node_fs14.readFileSync)((0, import_node_path70.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
@@ -65349,8 +65355,8 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "bab729024ae0d572959a3cc80e6f8ad1cbc5690920be27dbabcb4f3580b15948",
-  version: false ? null : "0.18.0"
+  sourceFingerprint: false ? null : "0c747a23a3eca48255317421a7fe659cf4e714c6c3eaac02cd36b57d27072a40",
+  version: false ? null : "0.18.1"
 };
 var json4 = (path3) => (0, import_promises63.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises63.readFile)(path3).then((bytes) => (0, import_node_crypto41.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
